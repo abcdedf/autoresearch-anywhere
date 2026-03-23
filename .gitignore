@@ -1,8 +1,9 @@
 # Logs
 logs/
 
-# Results
+# Results and workspace
 results/
+workspace/
 
 # Python
 __pycache__/

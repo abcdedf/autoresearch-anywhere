@@ -40,6 +40,10 @@ def init(platform_name: str):
         log_dir = click.prompt("Log directory", default="./logs")
         config["log_dir"] = log_dir
 
+    # Ensure log directory exists
+    from pathlib import Path
+    Path(config["log_dir"]).mkdir(parents=True, exist_ok=True)
+
     if "platforms" not in config:
         config["platforms"] = {}
 
@@ -295,7 +299,11 @@ def show_config():
 @click.option("--verbose", is_flag=True, help="Detailed logging")
 def run(config_file: str, dry_run: bool, verbose: bool):
     """Run autoresearch end to end."""
-    click.echo("Not yet implemented. Coming in iteration 2.")
+    if dry_run:
+        click.echo("Dry run not yet implemented for Mac.")
+        return
+    from autoresearch_aw.orchestrator import run_experiment
+    run_experiment(research_path=config_file, verbose=verbose)
 
 
 @cli.command()

@@ -409,6 +409,12 @@ results/
 - **VMs are destroyed after each run.** No persistent infrastructure, no lingering secrets.
 - **Future improvement:** Cloud secret managers (GCP Secret Manager, AWS Secrets Manager, Azure Key Vault) for enhanced key delivery.
 
+## Acknowledgments
+
+- [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) — the upstream project this tool wraps
+- [miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos) — Mac MPS adaptation that our Mac platform support is based on (Flash Attention 3 → PyTorch SDPA, MPS device support, torch.compile disabled on MPS)
+- [trevin-creator/autoresearch-mlx](https://github.com/trevin-creator/autoresearch-mlx) — MLX-based Mac adaptation (referenced during development)
+
 ## License
 
 MIT

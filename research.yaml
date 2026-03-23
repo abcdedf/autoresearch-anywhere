@@ -2,7 +2,7 @@
 research:
   topic: "Improve training loss on TinyShakespeare"
   program: "program.md"
-  max_experiments: 12
+  max_experiments: 2
 
 # Where to run
 platform: mac

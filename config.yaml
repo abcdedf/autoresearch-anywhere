@@ -1,0 +1,6 @@
+log_dir: ./logs
+platforms:
+  mac:
+    enabled: true
+    apple_silicon: true
+    mps_available: false

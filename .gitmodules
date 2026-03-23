@@ -1,0 +1,3 @@
+[submodule "upstream/autoresearch"]
+	path = upstream/autoresearch
+	url = https://github.com/karpathy/autoresearch.git

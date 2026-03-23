@@ -1,0 +1,16 @@
+[project]
+name = "autoresearch-aw"
+version = "0.1.0"
+description = "Run autoresearch from anywhere — Mac, GCP, AWS, or Azure"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+autoresearch-aw = "autoresearch_aw.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

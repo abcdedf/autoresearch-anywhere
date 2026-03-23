@@ -1,0 +1,33 @@
+# Logs
+logs/
+
+# Results
+results/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# uv
+.python-version
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+
+# Environment and secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Init config (contains user credentials/preferences)
+.autoresearch-aw/

@@ -10,6 +10,15 @@ Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your 
 | Azure | T4 16GB | $0.53/hr | Coming soon |
 | Oracle OCI | A10 24GB | $0.50/hr | Coming soon |
 
+## Why This Tool?
+
+The autoresearch ecosystem has tools for [Mac/MPS](https://github.com/miolini/autoresearch-macos), [MLX](https://github.com/trevin-creator/autoresearch-mlx), and cloud orchestrators like [SkyPilot](https://github.com/skypilot-org/skypilot). But no single tool lets a researcher go from research intent to results across any platform without infrastructure knowledge. autoresearch-anywhere fills that gap:
+
+- **Minimal infrastructure setup** — provide credentials and a research config; the tool handles infrastructure setup, running of autoresearch, and infrastructure teardown
+- **Cost tracking and budget enforcement** — no tool in the ecosystem tracks spend or enforces budgets
+- **Unified logging and result collection** — provision, run, collect, teardown in one command with one log
+- **True multi-platform** — same CLI, same workflow, any hardware
+
 ## Get Running (Mac — 2 minutes)
 
 1. Install uv (if you don't have it): `curl -LsSf https://astral.sh/uv/install.sh | sh`

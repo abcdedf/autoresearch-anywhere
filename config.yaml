@@ -4,3 +4,9 @@ platforms:
     enabled: true
     apple_silicon: true
     mps_available: false
+  aws:
+    region: us-east-1
+    instance_type: g5.xlarge
+    use_spot: false
+    spot_max_price: '0.50'
+    credentials_csv: /Users/abhayapat/.aws/credentials/accessKey.csv

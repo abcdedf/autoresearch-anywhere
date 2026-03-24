@@ -14,46 +14,42 @@ The researcher thinks about the research problem. This tool thinks about the inf
 2. One CLI command provisions infrastructure, runs autoresearch, collects results, tears down
 3. Cost is estimated upfront and tracked during execution; pauses at user-defined threshold
 4. Single unified log covers progress, results, cost, and troubleshooting
-5. Works identically on Mac (local), GCP, AWS, and Azure
+5. Works identically on Mac (local), AWS, GCP, Azure, and Oracle OCI
 
 ## Architecture Decisions
 
-- **~90% common code** — only Terraform modules and a thin local-vs-remote execution layer are platform-specific
+- **~90% common code** — only provider modules (thin SDK wrappers) are platform-specific
+- **No Terraform** — all cloud provisioning uses native Python SDKs (boto3, google-cloud-compute, azure-mgmt-compute, oci). This follows SkyPilot/Ray best practices for ephemeral VM lifecycle.
 - **Device abstraction** — PyTorch device detection (`cuda` / `mps` / `cpu`) is the only training code difference across platforms
-- **Terraform** for all cloud provisioning
-- **Python CLI** (`click` or `argparse`) as the single entry point
+- **Python CLI** (`click`) as the single entry point
 - **`init` separates one-time setup from runtime** — platform preferences stored in `./config.yaml` (committed), no credentials stored in project
-- **No credential storage** — API keys come from environment variables (`ANTHROPIC_API_KEY` in `~/.zshrc`), cloud credentials from CLI tools (`gcloud`, `aws`, `az`). Keys reach cloud VMs via SSH env vars at runtime, never written to disk.
+- **No credential storage** — API keys from env vars, cloud credentials from standard SDK auth (~/.aws/credentials, ~/.config/gcloud/, ~/.azure/, ~/.oci/config). Keys reach cloud VMs via SSH env vars at runtime, never written to disk.
 - **uv** as the package manager (matching autoresearch upstream)
+- **Optional dependencies** — `pip install autoresearch-aw[aws]` installs only what you need
 
 ## Development Constraints
 
 - **Total cloud testing budget: ~$5-7** across all platforms
 - **Most development/testing happens on Mac (free)** — CLI, config, cost engine, logging, orchestration
-- **Cloud runs only for Terraform validation** — ~5-8 real runs per cloud provider
-- **Each test run costs ~$0.02** (GCP T4 spot, 12 min)
-- **Use `terraform plan` (dry run)** to validate templates before `apply`
+- **Cloud runs for validation** — ~2-3 real runs per cloud provider
+- **Each test run costs ~$0.02-0.10** depending on provider
 
-## Current Goal
+## Current Status
 
-Get `autoresearch-aw run` working end-to-end on Mac with clear feedback at every step.
+- Mac: verified, working end-to-end
+- AWS: code complete, not yet verified
+- GCP: code complete, not yet verified
+- Azure: code complete, not yet verified
+- OCI: code complete, not yet verified
 
-### Milestones (in order)
-
-1. **Logging works** — every command writes to terminal AND timestamped log file in `./logs/`
-2. **`run` gives clear, real-time progress** — the researcher sees what phase they're in (data prep, training, eval), what step, and how long remains. Never silence.
-3. **Errors are specific and actionable** — if something fails, the log says exactly what and why. No "command failed" without context.
-4. **End-to-end Mac run succeeds** — `autoresearch-aw run` completes with val_bpb in results
-5. **Push to GitHub**
-6. Cloud platforms (later)
-
-### Enforcement Rules
+## Enforcement Rules
 
 - **No feature ships without logging.** If a command runs, its output goes to terminal AND log file. Period.
 - **No silent failures.** Every subprocess must capture and surface stdout+stderr on failure.
 - **Test after every change.** Run the command, check the log file, confirm it has what a researcher needs.
-- **2 experiments for testing.** Keep `max_experiments: 2` until Mac is validated.
-- **Logs directory must exist.** `init` creates it. `run` verifies it. No command should fail because `./logs/` is missing.
+- **2 experiments for testing.** Keep `max_experiments: 2` until validated.
+- **Logs directory must exist.** `init` creates it. `run` verifies it.
+- **Always teardown.** Cloud runs use try/finally to guarantee resource cleanup.
 
 ### Run Monitoring Policy
 
@@ -72,12 +68,6 @@ When running `autoresearch-aw run` or any long-running command:
 - [miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos) — Mac MPS adaptation our Mac platform is based on
 - Platform-adapted scripts live in `platforms/mac/` with attribution headers
 
-## Iteration Plan
-
-- Iterations 1-5: All on Mac ($0) — CLI, config, cost engine, logging, orchestration, local training
-- Iterations 6-8: Cloud validation (~$3-5) — Terraform apply per provider
-- Iterations 9-10: Cross-platform polish (~$1-2) — final validation, docs
-
 ## Key Files
 
 - `README.md` — user manual
@@ -86,12 +76,14 @@ When running `autoresearch-aw run` or any long-running command:
 - `autoresearch_aw/cli.py` — CLI entry point
 - `autoresearch_aw/config.py` — declarative config parser
 - `autoresearch_aw/orchestrator.py` — provision → setup → run → collect → teardown
+- `autoresearch_aw/providers/aws.py` — AWS provider (boto3)
+- `autoresearch_aw/providers/gcp.py` — GCP provider (google-cloud-compute)
+- `autoresearch_aw/providers/azure.py` — Azure provider (azure-mgmt-compute)
+- `autoresearch_aw/providers/oci.py` — Oracle OCI provider (oci SDK)
+- `autoresearch_aw/providers/ssh.py` — shared SSH/SCP helper (paramiko)
 - `platforms/mac/train.py` — Mac-adapted training script (based on miolini)
 - `platforms/mac/prepare.py` — Mac-adapted data prep script (based on miolini)
 - `upstream/autoresearch/` — Karpathy's original repo (git submodule)
-- `terraform/gcp/` — GCP Terraform module
-- `terraform/aws/` — AWS Terraform module
-- `terraform/azure/` — Azure Terraform module
 
 ## Coding Conventions
 

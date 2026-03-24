@@ -30,15 +30,15 @@ def cli():
 # ---------------------------------------------------------------------------
 
 @cli.command()
-@click.argument("platform_name", type=click.Choice(["mac", "gcp", "aws", "azure"]))
-def init(platform_name: str):
+@click.argument("platform_name", type=click.Choice(["mac", "gcp", "aws", "azure", "oci"]))
+@click.option("--credentials", "-c", default=None, help="Path to credentials file")
+def init(platform_name: str, credentials: str):
     """One-time platform setup."""
     config = load_config()
 
     # General settings (first time only)
     if "log_dir" not in config:
-        log_dir = click.prompt("Log directory", default="./logs")
-        config["log_dir"] = log_dir
+        config["log_dir"] = "./logs"
 
     # Ensure log directory exists
     from pathlib import Path
@@ -52,9 +52,11 @@ def init(platform_name: str):
     elif platform_name == "gcp":
         _init_gcp(config)
     elif platform_name == "aws":
-        _init_aws(config)
+        _init_aws(config, credentials)
     elif platform_name == "azure":
         _init_azure(config)
+    elif platform_name == "oci":
+        _init_oci(config)
 
     save_config(config)
     click.echo(f"\nConfig saved to {DEFAULT_CONFIG_PATH}")
@@ -103,27 +105,53 @@ def _init_mac(config: dict):
 
 
 def _init_gcp(config: dict):
-    """Prompt for GCP settings."""
-    click.echo("Configuring GCP...")
+    """Prompt for GCP settings. Reads service account JSON key file."""
+    click.echo("Configuring GCP...\n")
 
-    # Check gcloud CLI
-    if not shutil.which("gcloud"):
-        click.echo("Error: gcloud CLI not found. Install with: brew install google-cloud-sdk", err=True)
-        sys.exit(1)
+    import json
+    from google.oauth2 import service_account
+    from google.cloud import compute_v1
 
-    # Check authentication
-    result = subprocess.run(
-        ["gcloud", "auth", "application-default", "print-access-token"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        click.echo("Error: Not authenticated. Run: gcloud auth application-default login", err=True)
-        sys.exit(1)
+    # Check for existing credentials (env var or application default)
+    credentials = None
+    project = None
+    try:
+        client = compute_v1.InstancesClient()
+        click.echo("  GCP credentials: found")
+    except Exception:
+        # No credentials — ask for the JSON key file
+        click.echo("  No GCP credentials found.")
+        click.echo()
 
-    project = click.prompt("GCP project")
+        json_path = click.prompt("  Path to GCP service account JSON key file")
+        json_path = os.path.expanduser(json_path)
+
+        if not os.path.exists(json_path):
+            click.echo(f"  Error: File not found: {json_path}", err=True)
+            sys.exit(1)
+
+        # Read and verify the key file
+        try:
+            with open(json_path) as f:
+                key_data = json.load(f)
+            project = key_data.get("project_id")
+            credentials = service_account.Credentials.from_service_account_file(json_path)
+            client = compute_v1.InstancesClient(credentials=credentials)
+            click.echo(f"  Verified (project: {project})")
+        except Exception as e:
+            click.echo(f"  Error: Invalid key file. {e}", err=True)
+            sys.exit(1)
+
+        # Save to standard location so google-cloud SDK finds it automatically
+        gcp_cred_path = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
+        os.makedirs(os.path.dirname(gcp_cred_path), exist_ok=True)
+        shutil.copy2(json_path, gcp_cred_path)
+        click.echo(f"  Credentials saved to {gcp_cred_path}")
+
+    if not project:
+        project = click.prompt("\nGCP project ID")
     region = click.prompt("Region", default="us-central1")
     zone = click.prompt("Zone", default=f"{region}-a")
-    use_spot = click.confirm("Use spot instances?", default=True)
 
     config["platforms"]["gcp"] = {
         "project": project,
@@ -131,72 +159,217 @@ def _init_gcp(config: dict):
         "zone": zone,
         "instance_type": "n1-standard-4",
         "gpu_type": "nvidia-tesla-t4",
-        "use_spot": use_spot,
     }
 
-    click.echo("\nGCP platform configured.")
+    click.echo("\nGCP configured.")
 
 
-def _init_aws(config: dict):
-    """Prompt for AWS settings."""
-    click.echo("Configuring AWS...")
+def _init_aws(config: dict, credentials: str = None):
+    """Configure AWS. Reads credentials CSV from ~/.aws/credentials/ or --credentials path."""
+    click.echo("Configuring AWS...\n")
 
-    if not shutil.which("aws"):
-        click.echo("Error: AWS CLI not found. Install with: brew install awscli", err=True)
+    import csv
+    import boto3
+
+    # Find the CSV
+    default_dir = os.path.expanduser("~/.aws/credentials")
+    if credentials:
+        csv_path = os.path.expanduser(credentials)
+    else:
+        # Look for any CSV in ~/.aws/credentials/
+        csv_path = None
+        if os.path.isdir(default_dir):
+            for name in os.listdir(default_dir):
+                if name.endswith(".csv"):
+                    csv_path = os.path.join(default_dir, name)
+                    break
+
+    if not csv_path or not os.path.exists(csv_path):
+        click.echo(f"  Error: No credentials CSV found in {default_dir}/", err=True)
+        click.echo(f"  Download your access keys CSV from the AWS IAM console", err=True)
+        click.echo(f"  and move it to {default_dir}/", err=True)
         sys.exit(1)
 
-    # Check credentials
-    result = subprocess.run(
-        ["aws", "sts", "get-caller-identity"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        click.echo("Error: AWS credentials not configured. Run: aws configure", err=True)
+    # Read and verify (encoding="utf-8-sig" handles BOM that AWS includes in CSV)
+    with open(csv_path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        row = next(reader)
+        access_key = row.get("Access key ID", "").strip()
+        secret_key = row.get("Secret access key", "").strip()
+    if not access_key or not secret_key:
+        click.echo("  Error: Could not read keys from CSV. Expected columns: 'Access key ID', 'Secret access key'", err=True)
         sys.exit(1)
 
-    profile = click.prompt("AWS profile", default="default")
-    region = click.prompt("Region", default="us-east-1")
-    use_spot = click.confirm("Use spot instances?", default=True)
+    try:
+        session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+        )
+        sts = session.client("sts")
+        identity = sts.get_caller_identity()
+        click.echo(f"  Verified (account: {identity['Account']})")
+    except Exception as e:
+        click.echo(f"  Error: Invalid credentials. {e}", err=True)
+        sys.exit(1)
 
     config["platforms"]["aws"] = {
-        "profile": profile,
-        "region": region,
+        "region": "us-east-1",
         "instance_type": "g5.xlarge",
-        "use_spot": use_spot,
+        "use_spot": False,          # Set True for spot instances (~50% cheaper, but can be interrupted)
+        "spot_max_price": "0.50",   # Only used when use_spot is True
+        "credentials_csv": csv_path,
     }
 
-    click.echo("\nAWS platform configured.")
+    click.echo("\nAWS configured.")
 
 
 def _init_azure(config: dict):
-    """Prompt for Azure settings."""
-    click.echo("Configuring Azure...")
+    """Prompt for Azure settings. Uses service principal credentials (no CLI needed)."""
+    click.echo("Configuring Azure...\n")
 
-    if not shutil.which("az"):
-        click.echo("Error: Azure CLI not found. Install with: brew install azure-cli", err=True)
-        sys.exit(1)
+    from azure.identity import ClientSecretCredential, DefaultAzureCredential
 
-    # Check login
-    result = subprocess.run(
-        ["az", "account", "show"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        click.echo("Error: Not logged in. Run: az login", err=True)
-        sys.exit(1)
+    # Check for existing credentials (env vars or az login)
+    try:
+        credential = DefaultAzureCredential()
+        credential.get_token("https://management.azure.com/.default")
+        click.echo("  Azure credentials: found")
+        subscription = click.prompt("\nSubscription ID")
+    except Exception:
+        # No credentials — ask for service principal
+        click.echo("  No Azure credentials found.")
+        click.echo()
 
-    subscription = click.prompt("Subscription ID")
+        tenant_id = click.prompt("  Tenant ID (from Azure Portal → Microsoft Entra ID → Overview)")
+        client_id = click.prompt("  Application (client) ID")
+        client_secret = click.prompt("  Client secret value", hide_input=True)
+        subscription = click.prompt("  Subscription ID")
+
+        # Verify
+        try:
+            credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+            credential.get_token("https://management.azure.com/.default")
+            click.echo("  Verified.")
+        except Exception as e:
+            click.echo(f"  Error: Invalid credentials. {e}", err=True)
+            sys.exit(1)
+
+        # Save as environment variables in a file the SDK can pick up
+        azure_cred_dir = os.path.expanduser("~/.autoresearch-aw")
+        os.makedirs(azure_cred_dir, exist_ok=True)
+        env_path = os.path.join(azure_cred_dir, "azure_env")
+        with open(env_path, "w") as f:
+            f.write(f"AZURE_TENANT_ID={tenant_id}\n")
+            f.write(f"AZURE_CLIENT_ID={client_id}\n")
+            f.write(f"AZURE_CLIENT_SECRET={client_secret}\n")
+            f.write(f"AZURE_SUBSCRIPTION_ID={subscription}\n")
+        os.chmod(env_path, 0o600)
+        click.echo(f"  Credentials saved to {env_path}")
+
+        config["platforms"]["azure"] = {
+            "subscription": subscription,
+            "tenant_id": tenant_id,
+            "client_id": client_id,
+            "region": "eastus",
+            "instance_type": "Standard_NC4as_T4_v3",
+            "spot_max_price": "0.35",
+        }
+
+        region = click.prompt("\nRegion", default="eastus")
+        config["platforms"]["azure"]["region"] = region
+        click.echo("\nAzure configured.")
+        return
+
     region = click.prompt("Region", default="eastus")
-    use_spot = click.confirm("Use spot instances?", default=True)
 
     config["platforms"]["azure"] = {
         "subscription": subscription,
         "region": region,
         "instance_type": "Standard_NC4as_T4_v3",
-        "use_spot": use_spot,
+        "spot_max_price": "0.35",
     }
 
-    click.echo("\nAzure platform configured.")
+    click.echo("\nAzure configured.")
+
+
+def _init_oci(config: dict):
+    """Prompt for Oracle OCI settings. Reads API key config or creates one."""
+    click.echo("Configuring Oracle OCI...\n")
+
+    import oci
+
+    # Check for existing credentials (~/.oci/config)
+    try:
+        oci_config = oci.config.from_file()
+        identity_client = oci.identity.IdentityClient(oci_config)
+        tenancy = identity_client.get_tenancy(oci_config["tenancy"]).data
+        click.echo(f"  OCI credentials found (tenancy: {tenancy.name})")
+    except Exception:
+        # No credentials — guide through manual setup
+        click.echo("  No OCI credentials found.")
+        click.echo()
+        click.echo("  You need 4 values from the OCI Console (Profile → API Keys):")
+        click.echo()
+
+        tenancy_ocid = click.prompt("  Tenancy OCID")
+        user_ocid = click.prompt("  User OCID")
+        region = click.prompt("  Region", default="us-ashburn-1")
+        key_file = click.prompt("  Path to API private key PEM file")
+        key_file = os.path.expanduser(key_file)
+        fingerprint = click.prompt("  Key fingerprint")
+
+        if not os.path.exists(key_file):
+            click.echo(f"  Error: File not found: {key_file}", err=True)
+            sys.exit(1)
+
+        # Verify
+        try:
+            test_config = {
+                "user": user_ocid,
+                "key_file": key_file,
+                "fingerprint": fingerprint,
+                "tenancy": tenancy_ocid,
+                "region": region,
+            }
+            identity_client = oci.identity.IdentityClient(test_config)
+            tenancy = identity_client.get_tenancy(tenancy_ocid).data
+            click.echo(f"  Verified (tenancy: {tenancy.name})")
+        except Exception as e:
+            click.echo(f"  Error: Invalid credentials. {e}", err=True)
+            sys.exit(1)
+
+        # Save to ~/.oci/config (standard OCI location)
+        oci_dir = os.path.expanduser("~/.oci")
+        os.makedirs(oci_dir, exist_ok=True)
+        oci_config_path = os.path.join(oci_dir, "config")
+
+        if not os.path.exists(oci_config_path):
+            with open(oci_config_path, "w") as f:
+                f.write("[DEFAULT]\n")
+                f.write(f"user={user_ocid}\n")
+                f.write(f"fingerprint={fingerprint}\n")
+                f.write(f"tenancy={tenancy_ocid}\n")
+                f.write(f"region={region}\n")
+                f.write(f"key_file={key_file}\n")
+            os.chmod(oci_config_path, 0o600)
+            click.echo(f"  Credentials saved to {oci_config_path}")
+        else:
+            click.echo(f"  Note: {oci_config_path} already exists, not overwriting.")
+
+    compartment_id = click.prompt("\nCompartment OCID")
+    region = click.prompt("Region", default="us-ashburn-1")
+
+    config["platforms"]["oci"] = {
+        "compartment_id": compartment_id,
+        "region": region,
+        "instance_type": "VM.GPU.A10.1",
+    }
+
+    click.echo("\nOCI configured.")
 
 
 # ---------------------------------------------------------------------------
@@ -233,17 +406,21 @@ def show_config():
 
     if "aws" in platforms:
         a = platforms["aws"]
-        spot = "spot" if a.get("use_spot") else "on-demand"
-        click.echo(f"  aws:    {a['profile']} profile / {a['region']} / {a['instance_type']} {spot}")
+        click.echo(f"  aws:    {a.get('region', '?')} / {a.get('instance_type', '?')} spot (${a.get('spot_max_price', '?')}/hr)")
     else:
         click.echo("  aws:    not configured")
 
     if "azure" in platforms:
         az = platforms["azure"]
-        spot = "spot" if az.get("use_spot") else "on-demand"
-        click.echo(f"  azure:  {az['region']} / {az['instance_type']} {spot}")
+        click.echo(f"  azure:  {az.get('region', '?')} / {az.get('instance_type', '?')} spot (${az.get('spot_max_price', '?')}/hr)")
     else:
         click.echo("  azure:  not configured")
+
+    if "oci" in platforms:
+        o = platforms["oci"]
+        click.echo(f"  oci:    {o.get('region', '?')} / {o.get('instance_type', '?')}")
+    else:
+        click.echo("  oci:    not configured")
 
     # Research file
     click.echo()

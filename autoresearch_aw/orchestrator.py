@@ -35,8 +35,16 @@ def run_experiment(research_path: str = "research.yaml", verbose: bool = False):
 
         if platform == "mac":
             _run_mac(config, research, max_experiments, verbose, log)
+        elif platform == "aws":
+            _run_cloud(config, research, max_experiments, verbose, log, "aws")
+        elif platform == "gcp":
+            _run_cloud(config, research, max_experiments, verbose, log, "gcp")
+        elif platform == "azure":
+            _run_cloud(config, research, max_experiments, verbose, log, "azure")
+        elif platform == "oci":
+            _run_cloud(config, research, max_experiments, verbose, log, "oci")
         else:
-            log.error(f"Platform '{platform}' not yet implemented.")
+            log.error(f"Unknown platform '{platform}'. Use: mac, aws, gcp, azure, oci")
             sys.exit(1)
 
 
@@ -53,8 +61,15 @@ def _run_mac(config, research, max_experiments, verbose, log: Logger):
     results_dir = project_root / "results" / timestamp
     results_dir.mkdir(parents=True, exist_ok=True)
 
+    from autoresearch_aw.cost import CostTracker, estimate_run_cost
+
+    cost = estimate_run_cost("mac", "mac", max_experiments)
+    budget = research.get("budget", {}).get("max_cost_usd", 5.0)
+    tracker = CostTracker(gpu_hourly_rate=0.0, budget_usd=budget, log=log)
+
     log.log(f"Platform:    Mac")
     log.log(f"Experiments: {max_experiments} (~{max_experiments * 5} min)")
+    log.log(f"Est. cost:   ${cost['total_cost_usd']:.3f} (GPU: $0.00, API: ${cost['llm_cost_usd']:.3f})")
     log.log(f"Workspace:   {workspace}")
     log.log(f"Results:     {results_dir}")
     log.log()
@@ -123,6 +138,8 @@ def _run_mac(config, research, max_experiments, verbose, log: Logger):
         # Extract val_bpb from subprocess output captured in log
         val_bpb = _extract_last_val_bpb(log.log_path)
         results.append((i, val_bpb, elapsed, ok))
+        tracker.record_experiment()
+        tracker.log_status()
 
         log.log()
 
@@ -138,10 +155,243 @@ def _run_mac(config, research, max_experiments, verbose, log: Logger):
     log.log()
 
     # Summary
+    mac_device = config.get('platforms', {}).get('mac', {}).get('apple_silicon', False) and 'Apple Silicon MPS' or 'CPU'
+    _print_summary(log, f"Mac ({mac_device})", config, max_experiments, total_elapsed, results, results_dir, tracker)
+
+
+# GPU tuning: upstream train.py hardcodes for H100 80GB.
+# We sed the constants to fit the actual GPU. No upstream code changes.
+GPU_TUNING = {
+    "g5.xlarge": {  # AWS A10G 24GB
+        "gpu_name": "A10G 24GB",
+        "patches": [
+            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
+            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
+        ],
+    },
+    "n1-standard-4": {  # GCP T4 16GB
+        "gpu_name": "T4 16GB",
+        "patches": [
+            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 16"),
+            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**16"),
+        ],
+    },
+    "Standard_NC4as_T4_v3": {  # Azure T4 16GB
+        "gpu_name": "T4 16GB",
+        "patches": [
+            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 16"),
+            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**16"),
+        ],
+    },
+    "VM.GPU.A10.1": {  # OCI A10 24GB
+        "gpu_name": "A10 24GB",
+        "patches": [
+            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
+            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
+        ],
+    },
+}
+
+
+def _get_gpu_tuning(platform: str, config: dict) -> dict | None:
+    """Return GPU-specific patches for the target instance type."""
+    instance_type = config.get("platforms", {}).get(platform, {}).get("instance_type", "")
+    return GPU_TUNING.get(instance_type)
+
+
+def _load_provider(platform: str):
+    """Import and return the provider module for a given platform."""
+    if platform == "aws":
+        from autoresearch_aw.providers import aws as provider
+    elif platform == "gcp":
+        from autoresearch_aw.providers import gcp as provider
+    elif platform == "azure":
+        from autoresearch_aw.providers import azure as provider
+    elif platform == "oci":
+        from autoresearch_aw.providers import oci as provider
+    else:
+        raise ValueError(f"Unknown cloud platform: {platform}")
+    return provider
+
+
+def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform: str):
+    """Run autoresearch on any cloud platform (AWS/GCP/Azure/OCI).
+
+    All cloud providers share the same flow:
+    provision → SSH → upload scripts → prepare data → train → collect → teardown
+    """
+    from autoresearch_aw.providers.ssh import RemoteRunner
+
+    provider = _load_provider(platform)
+    project_root = Path(__file__).parent.parent
+    platform_upper = platform.upper()
+
+    # SSH user varies by provider
+    ssh_user = {"aws": "ubuntu", "gcp": "ubuntu", "azure": "azureuser", "oci": "ubuntu"}.get(platform, "ubuntu")
+
+    from autoresearch_aw.cost import CostTracker, estimate_run_cost
+
+    # Cost estimate upfront
+    instance_type = config.get("platforms", {}).get(platform, {}).get("instance_type", "unknown")
+    budget = research.get("budget", {}).get("max_cost_usd", 5.0)
+    cost = estimate_run_cost(platform, instance_type, max_experiments)
+
+    log.log(f"Platform:    {platform_upper} ({instance_type})")
+    log.log(f"Experiments: {max_experiments}")
+    log.log(f"Est. cost:   ${cost['total_cost_usd']:.2f} (GPU: ${cost['gpu_cost_usd']:.2f} + API: ${cost['llm_cost_usd']:.3f})")
+    log.log(f"Budget:      ${budget:.2f}")
+    log.log()
+
+    if cost["total_cost_usd"] > budget:
+        log.error(f"Estimated cost ${cost['total_cost_usd']:.2f} exceeds budget ${budget:.2f}. Aborting.")
+        sys.exit(1)
+
+    tracker = CostTracker(
+        gpu_hourly_rate=cost["gpu_hourly_rate"],
+        llm_model=cost["llm_model"],
+        budget_usd=budget,
+        log=log,
+        use_spot=config.get("platforms", {}).get(platform, {}).get("use_spot", False),
+    )
+
+    instance_info = None
+    try:
+        # Step 0: Provision
+        log.log(f"[provision] Launching {platform_upper} instance...")
+        instance_info = provider.provision(config, log)
+        public_ip = instance_info["public_ip"]
+        key_path = instance_info["key_path"]
+        tracker.start_gpu()
+        log.log()
+
+        # Step 1: Connect and setup
+        with RemoteRunner(public_ip, user=ssh_user, key_path=key_path, log=log) as ssh:
+            remote_dir = f"/home/{ssh_user}/autoresearch"
+            ssh.run(f"mkdir -p {remote_dir}")
+
+            # Upload upstream autoresearch project (scripts + dependency manifest)
+            upstream_dir = project_root / "upstream" / "autoresearch"
+            if (upstream_dir / "train.py").exists():
+                for fname in ["train.py", "prepare.py", "pyproject.toml", "uv.lock"]:
+                    fpath = upstream_dir / fname
+                    if fpath.exists():
+                        ssh.upload(str(fpath), f"{remote_dir}/{fname}")
+            else:
+                # Fallback: upload platform-adapted scripts
+                platforms_dir = project_root / "platforms" / "mac"
+                ssh.upload(str(platforms_dir / "train.py"), f"{remote_dir}/train.py")
+                ssh.upload(str(platforms_dir / "prepare.py"), f"{remote_dir}/prepare.py")
+                log.log("[warn] Using Mac-adapted scripts (upstream not found). CUDA path preferred.")
+
+            # Upload program.md if exists
+            program_file = research.get("research", {}).get("program", "program.md")
+            program_path = project_root / program_file
+            if program_path.exists():
+                ssh.upload(str(program_path), f"{remote_dir}/program.md")
+
+            log.log()
+
+            # Tune upstream defaults for the target GPU (upstream hardcodes for H100 80GB)
+            gpu_tuning = _get_gpu_tuning(platform, config)
+            if gpu_tuning:
+                log.log(f"[setup] Tuning train.py for {gpu_tuning['gpu_name']}...")
+                for old, new in gpu_tuning["patches"]:
+                    ssh.run(f"sed -i 's/{old}/{new}/' {remote_dir}/train.py")
+
+            # Install uv and sync upstream dependencies on remote
+            log.log("[setup] Installing uv and dependencies on remote...")
+            ssh.run("curl -LsSf https://astral.sh/uv/install.sh | sh")
+            ssh.run(f"cd {remote_dir} && ~/.local/bin/uv sync")
+            log.log("[setup] Done.")
+            log.log()
+
+            # Step 2: Data preparation
+            log.log("[prepare] Downloading data and training tokenizer...")
+            exit_code, _ = ssh.run(f"cd {remote_dir} && ~/.local/bin/uv run prepare.py --num-shards 2")
+            if exit_code != 0:
+                log.error("Data preparation failed on remote. Cannot continue.")
+                return
+            log.log("[prepare] Done.")
+            log.log()
+
+            # Step 3: Run training experiments
+            results = []
+            run_start = time.time()
+
+            for i in range(1, max_experiments + 1):
+                log.log(f"── Experiment {i}/{max_experiments} ──")
+                if i == 1:
+                    log.log("  Note: first experiment includes one-time CUDA kernel compilation (~2 min)")
+                t0 = time.time()
+
+                exit_code, output = ssh.run(f"cd {remote_dir} && ~/.local/bin/uv run train.py")
+
+                elapsed = time.time() - t0
+                ok = exit_code == 0
+                if ok:
+                    log.log(f"  Completed in {elapsed:.0f}s")
+                else:
+                    log.error(f"  Experiment {i} failed after {elapsed:.0f}s")
+
+                # Extract val_bpb from output
+                val_bpb = None
+                for line in output.splitlines():
+                    if "val_bpb:" in line:
+                        try:
+                            val_bpb = float(line.split("val_bpb:")[1].strip().split()[0])
+                        except (ValueError, IndexError):
+                            pass
+
+                results.append((i, val_bpb, elapsed, ok))
+                tracker.record_experiment()
+                tracker.log_status()
+
+                # Budget check
+                if tracker.is_over_budget() and i < max_experiments:
+                    log.log(f"  Budget limit reached (${tracker.total_cost_usd:.2f} / ${budget:.2f}). Stopping.")
+                    break
+
+                log.log()
+
+            total_elapsed = time.time() - run_start
+
+            # Step 4: Collect results
+            log.log("[results] Collecting results from remote...")
+            timestamp = datetime.now().strftime("%Y-%m-%dT%H%M%S")
+            results_dir = project_root / "results" / timestamp
+            results_dir.mkdir(parents=True, exist_ok=True)
+
+            try:
+                ssh.download(f"{remote_dir}/train.py", str(results_dir / "train.py"))
+            except Exception as e:
+                log.log(f"[results] Could not download train.py: {e}")
+
+            log.log(f"[results] Saved to {results_dir}")
+            log.log()
+
+        # Summary
+        _print_summary(log, platform_upper, config, max_experiments, total_elapsed, results, results_dir, tracker)
+
+    except Exception as e:
+        log.error(f"Run failed: {e}")
+    finally:
+        # Always teardown
+        if instance_info:
+            log.log()
+            log.log(f"[teardown] Cleaning up {platform_upper} resources...")
+            try:
+                provider.teardown(instance_info, log)
+            except Exception as e:
+                log.error(f"Teardown failed: {e}")
+                log.error(f"MANUAL CLEANUP NEEDED: check {platform_upper} console for orphaned resources")
+
+
+def _print_summary(log, platform_name, config, max_experiments, total_elapsed, results, results_dir, cost_tracker=None):
+    """Print run summary table — shared across all platforms."""
     log.log("═" * 50)
     log.log("RUN SUMMARY")
     log.log("═" * 50)
-    log.log(f"Platform:     Mac ({config.get('platforms', {}).get('mac', {}).get('apple_silicon', False) and 'Apple Silicon MPS' or 'CPU'})")
+    log.log(f"Platform:     {platform_name}")
     log.log(f"Experiments:  {max_experiments}")
     log.log(f"Total time:   {int(total_elapsed)}s ({total_elapsed / 60:.1f} min)")
     log.log()
@@ -169,6 +419,13 @@ def _run_mac(config, research, max_experiments, verbose, log: Logger):
     log.log()
     if best_bpb is not None:
         log.log(f"Best val_bpb: {best_bpb:.6f} (experiment {best_exp})")
+
+    # Cost summary
+    if cost_tracker:
+        log.log()
+        cost_tracker.log_summary()
+
+    log.log()
     log.log(f"Results:      {results_dir}")
     log.log(f"Log:          {log.log_path}")
     log.log("═" * 50)

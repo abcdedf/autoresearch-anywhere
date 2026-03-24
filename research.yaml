@@ -2,11 +2,11 @@
 research:
   topic: "Improve training loss on TinyShakespeare"
   program: "program.md"
-  max_experiments: 2
+  max_experiments: 1         # Set very low for quick demo. Upstream default: 100
 
 # Where to run
-platform: mac
+platform: mac                # Options: mac, aws, gcp, azure, oci
 
 # Cost controls
 budget:
-  max_cost_usd: 5.00
+  max_cost_usd: 5.00         # Cloud + API combined. Auto-stops if exceeded. For overnight cloud runs: 10-50

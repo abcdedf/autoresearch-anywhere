@@ -6,11 +6,21 @@ Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your 
 |----------|-----|------|--------|
 | Mac | Apple Silicon MPS | Free | Verified |
 | AWS | A10G 24GB | $1.01/hr on-demand | Verified |
-| GCP | T4 16GB | $0.35/hr | Ready to test |
-| Azure | T4 16GB | $0.35/hr | Ready to test |
-| Oracle OCI | A10 24GB | $0.50/hr | Ready to test |
+| GCP | T4 16GB | $0.35/hr | Coming soon |
+| Azure | T4 16GB | $0.53/hr | Coming soon |
+| Oracle OCI | A10 24GB | $0.50/hr | Coming soon |
 
 ## Get Running (Mac — 2 minutes)
+
+1. Install uv (if you don't have it): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. Set your LLM API key (add to `~/.zshrc` so it persists):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # if using Claude
+export OPENAI_API_KEY=sk-...          # if using OpenAI
+```
+
+3. Run:
 
 ```bash
 git clone https://github.com/<org>/autoresearch-aw.git
@@ -20,9 +30,7 @@ autoresearch-aw init mac
 autoresearch-aw run
 ```
 
-That's it. Training starts immediately on your Mac. No cloud account. No API keys. No configuration.
-
-> Don't have `uv`? Install it: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+That's it. Training starts immediately on your Mac. No cloud account. No configuration.
 
 ## Monitor Your Run
 
@@ -89,7 +97,7 @@ budget:
   max_cost_usd: 5.00       # Cloud + API combined. Auto-stops if exceeded. For overnight cloud runs: 10-50
 ```
 
-**Included defaults are set very low for a quick demo (~10 min).** For real research:
+**Included defaults are set very low for a quick demo (~5 min).** For real research:
 - `max_experiments: 100` — upstream default, runs overnight (12 experiments per hour, 5 min each)
 - `budget: 10–50` — overnight cloud runs cost $5–25 depending on provider
 - Training time per experiment is 60s (upstream default: 300s).
@@ -97,6 +105,10 @@ budget:
 ## Run on Cloud GPUs
 
 When you're ready for faster GPUs, change `platform:` in `research.yaml` and provide cloud credentials. The tool handles everything else — launching the VM, installing dependencies, running training, collecting results, and shutting down the VM.
+
+> **GPU quota required**: All cloud providers limit GPU access by default (quota = 0). Your first run will likely fail with a quota error. Request GPU access **before** your first run — it's free but can take hours to days for new accounts. See [GPU Quota](#gpu-quota) below for links.
+
+> **Note on GPU compatibility**: Upstream autoresearch hardcodes batch sizes for H100 80GB GPUs. Cloud GPUs (A10G 24GB, T4 16GB) have less VRAM and will OOM with those defaults. As a workaround, this tool patches batch sizes via `sed` on the remote before training — no upstream code is modified. We plan to submit a PR to upstream to make these values configurable via environment variables.
 
 ### AWS (no CLI install needed)
 
@@ -122,6 +134,7 @@ A GPU VM launches automatically, trains, collects results, and shuts down. Estim
    - Click **+ Create Service Account**
    - Enter a name (e.g. `autoresearch`) → click **Create and Continue**
    - Click **Select a role** → type `Compute Admin` → select it → click **Continue** → click **Done**
+   - (If you skipped the role: go to [IAM](https://console.cloud.google.com/iam-admin/iam) → **Grant Access** → paste the service account email → add **Compute Admin** role → **Save**)
 3. Download a JSON key for the service account:
    - You're back on the Service Accounts list. Click the service account you just created
    - Go to the **Keys** tab → click **Add Key** → **Create new key**
@@ -132,6 +145,7 @@ A GPU VM launches automatically, trains, collects results, and shuts down. Estim
 mkdir -p ~/.config/gcloud
 mv ~/Downloads/*.json ~/.config/gcloud/
 ```
+
 5. Set `platform: gcp` in `research.yaml`
 6. Run:
 
@@ -144,36 +158,41 @@ autoresearch-aw run
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.04 for 1 experiment on a T4 GPU (on-demand $0.35/hr).
 
-### Azure (no CLI install needed)
+### Azure
 
-1. [Create a service principal](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) in the Azure Portal:
-   - Microsoft Entra ID → App registrations → New registration
-   - Go to Certificates & secrets → New client secret → copy the **Value**
-   - Note the **Application (client) ID** and **Directory (tenant) ID** from the Overview page
-   - Go to Subscriptions → your subscription → copy the **Subscription ID**
-   - In the subscription, go to Access control (IAM) → Add role assignment → **Contributor** → assign to your app
-2. Save credentials as a JSON file at `~/.azure/service-principal.json` (create the folder if needed: `mkdir -p ~/.azure`):
+1. Install Azure CLI: `brew install azure-cli`
+2. Sign in: `az login` (opens browser)
+3. Create a service principal with Contributor access (replace `<subscription-id>` with yours from `az account show`):
+
+```bash
+az ad sp create-for-rbac --name autoresearch --role Contributor \
+  --scopes /subscriptions/<subscription-id>
+```
+
+This outputs `appId`, `password`, `tenant`. Map them into a JSON file:
+
+4. Save credentials at `~/.azure/service-principal.json` (`mkdir -p ~/.azure`):
 
 ```json
 {
-  "tenant_id": "your-tenant-id",
-  "client_id": "your-client-id",
-  "client_secret": "your-client-secret",
-  "subscription_id": "your-subscription-id"
+  "tenant_id": "<tenant>",
+  "client_id": "<appId>",
+  "client_secret": "<password>",
+  "subscription_id": "<subscription-id>"
 }
 ```
 
-3. Set `platform: azure` in `research.yaml`
-4. Run:
+5. Set `platform: azure` in `research.yaml`
+6. Run:
 
 ```bash
 autoresearch-aw init azure
 autoresearch-aw run
 ```
 
-`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. It also checks the environment variables `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and `AZURE_SUBSCRIPTION_ID`. To use a different file: `autoresearch-aw init azure --credentials /path/to/sp.json`
+`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-aw init azure --credentials /path/to/sp.json`
 
-A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.04 for 1 experiment on a T4 GPU (on-demand $0.35/hr).
+A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.05 for 1 experiment on a T4 GPU (on-demand $0.53/hr).
 
 ### Oracle OCI
 
@@ -217,23 +236,23 @@ After each experiment:
 
 Run summary:
 ```
-Cloud cost:   $0.25 (on-demand rate: $1.01/hr)
-API cost:     $0.07 estimated (8,000 in + 4,000 out tokens × claude-sonnet pay-per-token rate)
+Cloud cost:   $0.13 (on-demand rate: $1.01/hr)
+API cost:     $0.02 estimated (4,000 in + 2,000 out tokens × claude-sonnet pay-per-token rate)
               Note: API cost may be $0 if you have a subscription or free credits
-Total (est):  $0.32 / $5.00 budget
+Total (est):  $0.15 / $5.00 budget
 ```
 
 If combined cost hits your budget, the run stops automatically and results are collected.
 
 ## GPU Quota
 
-Cloud providers limit GPU access by default. If your first cloud run fails with a capacity or quota error, you need to request GPU access (free, usually approved within hours):
+Cloud providers set GPU quota to **0** by default. Your first cloud run will fail with a quota error until you request access. Request GPU quota **before** your first run — it's free but approval takes hours to days for new accounts:
 
 | Provider | Where to request |
 |----------|-----------------|
 | AWS | [Service Quotas](https://console.aws.amazon.com/servicequotas/) → EC2 → search "G and VT" |
 | GCP | [Quotas](https://console.cloud.google.com/iam-admin/quotas) → search "NVIDIA T4" |
-| Azure | [Usage + quotas](https://portal.azure.com/) → search "NCasT4" |
+| Azure | [Quotas](https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas) → search "NCASv3_T4", request 4 cores |
 | OCI | [Limits](https://cloud.oracle.com/limits) → search your GPU shape |
 
 ## Security

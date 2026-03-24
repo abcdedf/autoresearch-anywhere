@@ -36,23 +36,75 @@ class RemoteRunner:
                     time.sleep(delay)
         raise ConnectionError(f"Failed to SSH into {self.host} after {retries} attempts")
 
-    def run(self, cmd: str, stream: bool = True) -> tuple[int, str]:
+    def run(self, cmd: str, stream: bool = True, timeout: int = None,
+            abort_event=None) -> tuple[int, str]:
         """Run a command over SSH. Streams output to log if stream=True.
-        Returns (exit_code, full_output)."""
+
+        Args:
+            timeout: Max seconds to wait. Command is killed if exceeded.
+            abort_event: threading.Event — if set externally, kills the command.
+
+        Returns (exit_code, full_output). Exit code -1 means timeout/aborted.
+        """
         if self.log:
             self.log.log(f"  $ {cmd}")
 
         _, stdout, stderr = self.client.exec_command(cmd, get_pty=True)
+        channel = stdout.channel
         output_lines = []
+        start = time.time()
+        timed_out = False
+        aborted = False
 
         if stream:
-            for line in stdout:
-                line = line.rstrip("\n\r")
-                line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
-                if line:
-                    output_lines.append(line)
-                    if self.log:
-                        self.log.raw(line)
+            # Read with periodic timeout/abort checks
+            channel.settimeout(5.0)  # 5s read timeout for checking abort/timeout
+            while not channel.exit_status_ready():
+                # Check abort event
+                if abort_event and abort_event.is_set():
+                    aborted = True
+                    break
+                # Check timeout
+                if timeout and (time.time() - start) > timeout:
+                    timed_out = True
+                    break
+                try:
+                    data = channel.recv(4096)
+                    if not data:
+                        break
+                    for line in data.decode(errors="replace").splitlines():
+                        line = line.rstrip("\n\r")
+                        line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
+                        if line:
+                            output_lines.append(line)
+                            if self.log:
+                                self.log.raw(line)
+                except Exception:
+                    pass  # socket timeout — loop back and check abort/timeout
+
+            if timed_out or aborted:
+                reason = "timeout" if timed_out else "budget exceeded"
+                if self.log:
+                    self.log.log(f"  [ssh] Killing command ({reason})")
+                channel.close()
+                return -1, "\n".join(output_lines)
+
+            # Drain remaining output
+            try:
+                channel.settimeout(5.0)
+                while True:
+                    data = channel.recv(4096)
+                    if not data:
+                        break
+                    for line in data.decode(errors="replace").splitlines():
+                        line = line.rstrip("\n\r")
+                        line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
+                        if line:
+                            output_lines.append(line)
+                            if self.log:
+                                self.log.raw(line)
+            except Exception:
+                pass
         else:
             output_lines = stdout.read().decode().splitlines()
 

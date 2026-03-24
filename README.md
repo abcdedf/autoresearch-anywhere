@@ -160,6 +160,10 @@ A GPU VM launches automatically, trains, collects results, and shuts down. Estim
 
 ### Azure
 
+The quickest way is with the Azure CLI (one command creates everything). You can also gather the credentials manually from the Azure Portal — see below.
+
+**Option A: Azure CLI (recommended)**
+
 1. Install Azure CLI: `brew install azure-cli`
 2. Sign in: `az login` (opens browser)
 3. Create a service principal with Contributor access (replace `<subscription-id>` with yours from `az account show`):
@@ -169,9 +173,17 @@ az ad sp create-for-rbac --name autoresearch --role Contributor \
   --scopes /subscriptions/<subscription-id>
 ```
 
-This outputs `appId`, `password`, `tenant`. Map them into a JSON file:
+This outputs `appId`, `password`, `tenant`. Map them into a JSON file.
 
-4. Save credentials at `~/.azure/service-principal.json` (`mkdir -p ~/.azure`):
+**Option B: Azure Portal (no CLI needed)**
+
+1. Go to [App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) → **New registration** → name it `autoresearch` → **Register**
+2. From the app's **Overview** page, note the **Application (client) ID** and **Directory (tenant) ID**
+3. Click **Add a certificate or secret** → **New client secret** → copy the **Value** (shown only once)
+4. Go to [Subscriptions](https://portal.azure.com/#view/Microsoft_Azure_Billing/SubscriptionsListBlade) → click your subscription → copy the **Subscription ID**
+5. Still in the subscription → **Access control (IAM)** → **Add role assignment** → **Contributor** → select your app → **Review + assign**
+
+**Both options**: Save credentials at `~/.azure/service-principal.json` (`mkdir -p ~/.azure`):
 
 ```json
 {

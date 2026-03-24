@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -199,6 +200,63 @@ def _get_gpu_tuning(platform: str, config: dict) -> dict | None:
     return GPU_TUNING.get(instance_type)
 
 
+EXPERIMENT_TIMEOUT_MULTIPLIER = 3  # timeout = TIME_BUDGET * multiplier (covers CUDA compile, eval, overhead)
+EXPERIMENT_TIMEOUT_DEFAULT = 900   # fallback if TIME_BUDGET can't be read from prepare.py
+
+
+class BudgetWatchdog:
+    """Background thread that checks cost every 30s and signals abort if over budget."""
+
+    def __init__(self, tracker, abort_event: threading.Event, log=None, interval: int = 30):
+        self.tracker = tracker
+        self.abort_event = abort_event
+        self.log = log
+        self.interval = interval
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            if self.tracker.is_over_budget():
+                if self.log:
+                    self.log.log(f"  [watchdog] Budget exceeded (${self.tracker.total_cost_usd:.2f} / ${self.tracker.budget_usd:.2f}). Aborting experiment.")
+                self.abort_event.set()
+                return
+
+
+def _get_experiment_timeout(project_root: Path, platform: str) -> int:
+    """Derive experiment timeout from TIME_BUDGET in prepare.py.
+
+    Returns TIME_BUDGET * multiplier to allow for CUDA compile, eval, and overhead.
+    Falls back to a safe default if TIME_BUDGET can't be read.
+    """
+    import re as _re
+
+    # Cloud uses upstream prepare.py; Mac uses platform-adapted one
+    if platform == "mac":
+        prepare_path = project_root / "platforms" / "mac" / "prepare.py"
+    else:
+        prepare_path = project_root / "upstream" / "autoresearch" / "prepare.py"
+
+    if prepare_path.exists():
+        for line in prepare_path.read_text().splitlines():
+            match = _re.match(r'^TIME_BUDGET\s*=\s*(\d+)', line)
+            if match:
+                time_budget = int(match.group(1))
+                return time_budget * EXPERIMENT_TIMEOUT_MULTIPLIER
+
+    return EXPERIMENT_TIMEOUT_DEFAULT
+
+
 def _load_provider(platform: str):
     """Import and return the provider module for a given platform."""
     if platform == "aws":
@@ -317,41 +375,66 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
             # Step 3: Run training experiments
             results = []
             run_start = time.time()
+            experiment_timeout = _get_experiment_timeout(project_root, platform)
+            log.log(f"[config] Experiment timeout: {experiment_timeout}s")
 
-            for i in range(1, max_experiments + 1):
-                log.log(f"── Experiment {i}/{max_experiments} ──")
-                if i == 1:
-                    log.log("  Note: first experiment includes one-time CUDA kernel compilation (~2 min)")
-                t0 = time.time()
+            # Budget watchdog: checks cost every 30s, aborts if over budget
+            # TODO(backlog): validate end-to-end on a real cloud run — see BACKLOG.md
+            abort_event = threading.Event()
+            watchdog = BudgetWatchdog(tracker, abort_event, log=log)
+            watchdog.start()
 
-                exit_code, output = ssh.run(f"cd {remote_dir} && ~/.local/bin/uv run train.py")
+            try:
+                for i in range(1, max_experiments + 1):
+                    log.log(f"── Experiment {i}/{max_experiments} ──")
+                    if i == 1:
+                        log.log("  Note: first experiment includes one-time CUDA kernel compilation (~2 min)")
+                    t0 = time.time()
 
-                elapsed = time.time() - t0
-                ok = exit_code == 0
-                if ok:
-                    log.log(f"  Completed in {elapsed:.0f}s")
-                else:
-                    log.error(f"  Experiment {i} failed after {elapsed:.0f}s")
+                    abort_event.clear()
+                    exit_code, output = ssh.run(
+                        f"cd {remote_dir} && ~/.local/bin/uv run train.py",
+                        timeout=experiment_timeout,
+                        abort_event=abort_event,
+                    )
 
-                # Extract val_bpb from output
-                val_bpb = None
-                for line in output.splitlines():
-                    if "val_bpb:" in line:
-                        try:
-                            val_bpb = float(line.split("val_bpb:")[1].strip().split()[0])
-                        except (ValueError, IndexError):
-                            pass
+                    elapsed = time.time() - t0
+                    ok = exit_code == 0
 
-                results.append((i, val_bpb, elapsed, ok))
-                tracker.record_experiment()
-                tracker.log_status()
+                    if abort_event.is_set():
+                        log.log(f"  Experiment {i} aborted (budget exceeded) after {elapsed:.0f}s")
+                        results.append((i, None, elapsed, False))
+                        break
+                    elif exit_code == -1:
+                        log.log(f"  Experiment {i} timed out after {elapsed:.0f}s (limit: {EXPERIMENT_TIMEOUT}s)")
+                        results.append((i, None, elapsed, False))
+                        break
+                    elif ok:
+                        log.log(f"  Completed in {elapsed:.0f}s")
+                    else:
+                        log.error(f"  Experiment {i} failed after {elapsed:.0f}s")
 
-                # Budget check
-                if tracker.is_over_budget() and i < max_experiments:
-                    log.log(f"  Budget limit reached (${tracker.total_cost_usd:.2f} / ${budget:.2f}). Stopping.")
-                    break
+                    # Extract val_bpb from output
+                    val_bpb = None
+                    for line in output.splitlines():
+                        if "val_bpb:" in line:
+                            try:
+                                val_bpb = float(line.split("val_bpb:")[1].strip().split()[0])
+                            except (ValueError, IndexError):
+                                pass
 
-                log.log()
+                    results.append((i, val_bpb, elapsed, ok))
+                    tracker.record_experiment()
+                    tracker.log_status()
+
+                    # Budget check between experiments
+                    if tracker.is_over_budget() and i < max_experiments:
+                        log.log(f"  Budget limit reached (${tracker.total_cost_usd:.2f} / ${budget:.2f}). Stopping.")
+                        break
+
+                    log.log()
+            finally:
+                watchdog.stop()
 
             total_elapsed = time.time() - run_start
 

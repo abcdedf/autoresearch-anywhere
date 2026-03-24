@@ -36,33 +36,30 @@ What you'll see:
 
 ```
 [12:01:00] Platform:    Mac
-[12:01:00] Experiments: 2 (~10 min)
-[12:01:00] Est. cost:   $0.036 (GPU: $0.00, API: $0.036)
+[12:01:00] Experiments: 1 (~5 min)
+[12:01:00] Est. cost:   $0.018 (GPU: $0.00, API: $0.018)
 [12:01:05] [setup] Installing workspace dependencies...
 [12:02:30] [prepare] Downloading data and training tokenizer...
-[12:03:45] ── Experiment 1/2 ──
+[12:03:45] ── Experiment 1/1 ──
 [12:03:45] [warmup 1/10] First 10 steps are warmup, training starts after...
 [12:04:10] [training 30/60s] step 00050 | loss 3.812 | remaining: 30s
 [12:04:50] Evaluating val_bpb...
 [12:05:10] val_bpb: 2.124254
 [12:05:10]   Cost: $0.02 / $5.00 (GPU: $0.00, API: $0.02)
-[12:05:10] ── Experiment 2/2 ──
-...
 ══════════════════════════════════════════════════
 RUN SUMMARY
 ══════════════════════════════════════════════════
-Experiments:  2
-Total time:   535s (8.9 min)
+Experiments:  1
+Total time:   208s (3.5 min)
 
  Exp     val_bpb      Time    Status
  ────  ──────────  ────────  ────────
    1    2.124254      208s        ok
-   2    2.201822      327s        ok
 
 Best val_bpb: 2.124254 (experiment 1)
 GPU compute:  $0.00 (0.00/hr)
-LLM API:      $0.04 (8,000 in + 4,000 out tokens, claude-sonnet)
-Total cost:   $0.04 / $5.00 budget
+LLM API:      $0.02 (4,000 in + 2,000 out tokens, claude-sonnet)
+Total cost:   $0.02 / $5.00 budget
 ══════════════════════════════════════════════════
 ```
 
@@ -95,7 +92,7 @@ budget:
 **Included defaults are set very low for a quick demo (~10 min).** For real research:
 - `max_experiments: 100` — upstream default, runs overnight (12 experiments per hour, 5 min each)
 - `budget: 10–50` — overnight cloud runs cost $5–25 depending on provider
-- Training time per experiment is 60s (upstream default: 300s). This is configurable in the platform scripts.
+- Training time per experiment is 60s (upstream default: 300s).
 
 ## Run on Cloud GPUs
 
@@ -117,23 +114,84 @@ autoresearch-aw run
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.13 for 1 experiment on an A10G GPU.
 
-### GCP
+### GCP (no CLI install needed)
 
-1. Install Google Cloud CLI: `brew install google-cloud-sdk`
-2. Authenticate: `gcloud auth application-default login` (opens browser)
-3. Run `autoresearch-aw init gcp` and provide your project ID
+1. [Create a GCP project](https://console.cloud.google.com/projectcreate) (or select an existing one from the dropdown at the top of any GCP console page)
+2. Create a service account with Compute Admin access:
+   - Go to [IAM → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+   - Click **+ Create Service Account**
+   - Enter a name (e.g. `autoresearch`) → click **Create and Continue**
+   - Click **Select a role** → type `Compute Admin` → select it → click **Continue** → click **Done**
+3. Download a JSON key for the service account:
+   - You're back on the Service Accounts list. Click the service account you just created
+   - Go to the **Keys** tab → click **Add Key** → **Create new key**
+   - Select **JSON** → click **Create** — the key file downloads automatically (you can only download it once)
+4. Move the JSON to `~/.config/gcloud/`:
 
-### Azure
+```bash
+mkdir -p ~/.config/gcloud
+mv ~/Downloads/*.json ~/.config/gcloud/
+```
+5. Set `platform: gcp` in `research.yaml`
+6. Run:
 
-1. Install Azure CLI: `brew install azure-cli`
-2. Authenticate: `az login` (opens browser)
-3. Run `autoresearch-aw init azure` and provide your subscription ID
+```bash
+autoresearch-aw init gcp
+autoresearch-aw run
+```
+
+`init gcp` reads credentials from `~/.config/gcloud/` by default and verifies them. To use a different location: `autoresearch-aw init gcp --credentials /path/to/key.json`
+
+A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.04 for 1 experiment on a T4 GPU (on-demand $0.35/hr).
+
+### Azure (no CLI install needed)
+
+1. [Create a service principal](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) in the Azure Portal:
+   - Microsoft Entra ID → App registrations → New registration
+   - Go to Certificates & secrets → New client secret → copy the **Value**
+   - Note the **Application (client) ID** and **Directory (tenant) ID** from the Overview page
+   - Go to Subscriptions → your subscription → copy the **Subscription ID**
+   - In the subscription, go to Access control (IAM) → Add role assignment → **Contributor** → assign to your app
+2. Save credentials as a JSON file at `~/.azure/service-principal.json` (create the folder if needed: `mkdir -p ~/.azure`):
+
+```json
+{
+  "tenant_id": "your-tenant-id",
+  "client_id": "your-client-id",
+  "client_secret": "your-client-secret",
+  "subscription_id": "your-subscription-id"
+}
+```
+
+3. Set `platform: azure` in `research.yaml`
+4. Run:
+
+```bash
+autoresearch-aw init azure
+autoresearch-aw run
+```
+
+`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. It also checks the environment variables `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and `AZURE_SUBSCRIPTION_ID`. To use a different file: `autoresearch-aw init azure --credentials /path/to/sp.json`
+
+A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.04 for 1 experiment on a T4 GPU (on-demand $0.35/hr).
 
 ### Oracle OCI
 
 1. Install OCI CLI: `brew install oci-cli`
-2. Configure: `oci setup config` (follow prompts)
-3. Run `autoresearch-aw init oci` and provide your compartment OCID
+2. Generate an API signing key and config: `oci setup config` (follow prompts — it creates `~/.oci/config` with your tenancy, user, region, and PEM key)
+3. Find your compartment OCID: OCI Console → Identity & Security → Compartments → copy the OCID
+4. Add the compartment to your OCI config: add `compartment=ocid1.compartment.oc1..xxxxx` to the `[DEFAULT]` section of `~/.oci/config`
+5. Set `platform: oci` in `research.yaml`
+6. Run:
+
+```bash
+autoresearch-aw init oci
+autoresearch-aw run
+```
+
+`init oci` reads credentials from `~/.oci/config` by default and verifies them. To use a different config file: `autoresearch-aw init oci --credentials /path/to/oci/config`. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
+
+Estimated cloud cost: $0.08 for 1 experiment on an A10 GPU (on-demand $0.50/hr).
 
 ### Switching Platforms
 
@@ -180,7 +238,7 @@ Cloud providers limit GPU access by default. If your first cloud run fails with 
 
 ## Security
 
-- Credentials never stored in the project — they live in standard locations on your machine (`~/.aws/`, `~/.config/gcloud/`, etc.)
+- Credentials never stored in the project — they live in standard locations on your machine (`~/.aws/`, `~/.config/gcloud/`, `~/.azure/`, etc.)
 - API keys reach cloud VMs via SSH environment variables at runtime, never written to disk
 - VMs are destroyed after each run — no lingering resources
 

@@ -1,8 +1,8 @@
-# CLAUDE.md — autoresearch-aw
+# CLAUDE.md — autoresearch-anywhere
 
 ## Project Overview
 
-**autoresearch-aw (Autoresearch from Anywhere)** — a Python CLI tool that wraps Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) to let researchers run autonomous AI experiments on Mac or any cloud platform with minimal infrastructure knowledge.
+**autoresearch-anywhere (Autoresearch from Anywhere)** — a Python CLI tool that wraps Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) to let researchers run autonomous AI experiments on Mac or any cloud platform with minimal infrastructure knowledge.
 
 ## Core Principle
 
@@ -25,7 +25,7 @@ The researcher thinks about the research problem. This tool thinks about the inf
 - **`init` separates one-time setup from runtime** — platform preferences stored in `./config.yaml` (committed), no credentials stored in project
 - **No credential storage** — API keys from env vars, cloud credentials from standard SDK auth (~/.aws/credentials, ~/.config/gcloud/, ~/.azure/, ~/.oci/config). Keys reach cloud VMs via SSH env vars at runtime, never written to disk.
 - **uv** as the package manager (matching autoresearch upstream)
-- **Optional dependencies** — `pip install autoresearch-aw[aws]` installs only what you need
+- **Optional dependencies** — `pip install autoresearch-anywhere[aws]` installs only what you need
 
 ## Development Constraints
 
@@ -53,7 +53,7 @@ The researcher thinks about the research problem. This tool thinks about the inf
 
 ### Run Monitoring Policy
 
-When running `autoresearch-aw run` or any long-running command:
+When running `autoresearch-anywhere run` or any long-running command:
 
 1. **Launch the run in background** using `run_in_background`.
 2. **Monitor `logs/run_latest.log` every 20 seconds** — read the last ~20 lines to check progress.

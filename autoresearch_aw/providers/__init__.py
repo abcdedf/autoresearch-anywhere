@@ -1,1 +1,1 @@
-"""Cloud providers for autoresearch-aw."""
+"""Cloud providers for autoresearch-anywhere."""

@@ -19,7 +19,7 @@ def run_experiment(research_path: str = "research.yaml", verbose: bool = False):
     research = load_research(Path(research_path))
 
     if not config:
-        print("Error: No config found. Run 'autoresearch-aw init <platform>' first.")
+        print("Error: No config found. Run 'autoresearch-anywhere init <platform>' first.")
         sys.exit(1)
 
     if not research:
@@ -200,8 +200,8 @@ def _get_gpu_tuning(platform: str, config: dict) -> dict | None:
     return GPU_TUNING.get(instance_type)
 
 
-EXPERIMENT_TIMEOUT_OVERHEAD = 60   # seconds added to TIME_BUDGET for eval + overhead
-EXPERIMENT_TIMEOUT_DEFAULT = 360   # fallback if TIME_BUDGET can't be read (300s + 60s)
+EXPERIMENT_TIMEOUT_OVERHEAD = 300  # seconds added to TIME_BUDGET for warmup, CUDA compile, eval
+EXPERIMENT_TIMEOUT_DEFAULT = 600   # fallback if TIME_BUDGET can't be read (300s + 300s)
 
 
 class BudgetWatchdog:

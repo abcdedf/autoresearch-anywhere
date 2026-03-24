@@ -21,10 +21,10 @@ DEFAULT_REGION = "us-central1"
 DEFAULT_ZONE = "us-central1-a"
 DEFAULT_HOURLY_RATE = 0.35  # $/hr for n1-standard-4 + T4 on-demand
 BOOT_DISK_SIZE_GB = 150
-FIREWALL_RULE_NAME = "autoresearch-aw-allow-ssh"
-INSTANCE_NAME = "autoresearch-aw"
-NETWORK_TAG = "autoresearch-aw"
-KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-aw")
+FIREWALL_RULE_NAME = "autoresearch-anywhere-allow-ssh"
+INSTANCE_NAME = "autoresearch-anywhere"
+NETWORK_TAG = "autoresearch-anywhere"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
 
 
 def _get_credentials(config: dict):
@@ -51,7 +51,7 @@ def provision(config: dict, log=None) -> dict:
 
     if not project:
         raise ValueError("GCP config requires 'project' (your GCP project ID). "
-                         "Run 'autoresearch-aw init gcp' to configure.")
+                         "Run 'autoresearch-anywhere init gcp' to configure.")
 
     credentials = _get_credentials(config)
 
@@ -190,7 +190,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
     to the instance (not project) so only Compute Admin is needed.
     """
     os.makedirs(KEY_DIR, exist_ok=True)
-    key_path = os.path.join(KEY_DIR, "autoresearch-aw-gcp")
+    key_path = os.path.join(KEY_DIR, "autoresearch-anywhere-gcp")
 
     if os.path.exists(key_path):
         if log:
@@ -201,7 +201,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
             log.log("[gcp] Creating SSH key pair...")
         import subprocess
         subprocess.run(
-            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-aw"],
+            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anywhere"],
             check=True, capture_output=True,
         )
         os.chmod(key_path, 0o400)
@@ -219,7 +219,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
 
 
 def _cleanup_orphaned_instances(project: str, zone: str, credentials=None, log=None):
-    """Terminate any running autoresearch-aw instances from previous failed runs."""
+    """Terminate any running autoresearch-anywhere instances from previous failed runs."""
     try:
         instances_client = compute_v1.InstancesClient(credentials=credentials)
         request = compute_v1.ListInstancesRequest(
@@ -357,7 +357,7 @@ def _ensure_firewall_rule(project: str, credentials=None, log=None):
         ],
         source_ranges=["0.0.0.0/0"],
         target_tags=[NETWORK_TAG],
-        description="SSH access for autoresearch-aw",
+        description="SSH access for autoresearch-anywhere",
     )
 
     operation = firewalls_client.insert(

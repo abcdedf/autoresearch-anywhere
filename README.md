@@ -1,4 +1,4 @@
-# autoresearch-aw
+# autoresearch-anywhere
 
 Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your Mac or any cloud GPU — one command, no infrastructure knowledge needed.
 
@@ -23,11 +23,11 @@ export OPENAI_API_KEY=sk-...          # if using OpenAI
 3. Run:
 
 ```bash
-git clone https://github.com/<org>/autoresearch-aw.git
-cd autoresearch-aw
+git clone https://github.com/abcdedf/autoresearch-anywhere.git
+cd autoresearch-anywhere
 uv sync
-autoresearch-aw init mac
-autoresearch-aw run
+autoresearch-anywhere init mac
+autoresearch-anywhere run
 ```
 
 That's it. Training starts immediately on your Mac. No cloud account. No configuration.
@@ -118,11 +118,11 @@ When you're ready for faster GPUs, change `platform:` in `research.yaml` and pro
 4. Run:
 
 ```bash
-autoresearch-aw init aws
-autoresearch-aw run
+autoresearch-anywhere init aws
+autoresearch-anywhere run
 ```
 
-`init aws` reads credentials from `~/.aws/credentials/` by default and verifies them. To use a different location: `autoresearch-aw init aws --credentials /path/to/accessKeys.csv`
+`init aws` reads credentials from `~/.aws/credentials/` by default and verifies them. To use a different location: `autoresearch-anywhere init aws --credentials /path/to/accessKeys.csv`
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.13 for 1 experiment on an A10G GPU.
 
@@ -150,11 +150,11 @@ mv ~/Downloads/*.json ~/.config/gcloud/
 6. Run:
 
 ```bash
-autoresearch-aw init gcp
-autoresearch-aw run
+autoresearch-anywhere init gcp
+autoresearch-anywhere run
 ```
 
-`init gcp` reads credentials from `~/.config/gcloud/` by default and verifies them. To use a different location: `autoresearch-aw init gcp --credentials /path/to/key.json`
+`init gcp` reads credentials from `~/.config/gcloud/` by default and verifies them. To use a different location: `autoresearch-anywhere init gcp --credentials /path/to/key.json`
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.04 for 1 experiment on a T4 GPU (on-demand $0.35/hr).
 
@@ -198,11 +198,11 @@ This outputs `appId`, `password`, `tenant`. Map them into a JSON file.
 6. Run:
 
 ```bash
-autoresearch-aw init azure
-autoresearch-aw run
+autoresearch-anywhere init azure
+autoresearch-anywhere run
 ```
 
-`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-aw init azure --credentials /path/to/sp.json`
+`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-anywhere init azure --credentials /path/to/sp.json`
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.05 for 1 experiment on a T4 GPU (on-demand $0.53/hr).
 
@@ -216,11 +216,11 @@ A GPU VM launches automatically, trains, collects results, and shuts down. Estim
 6. Run:
 
 ```bash
-autoresearch-aw init oci
-autoresearch-aw run
+autoresearch-anywhere init oci
+autoresearch-anywhere run
 ```
 
-`init oci` reads credentials from `~/.oci/config` by default and verifies them. To use a different config file: `autoresearch-aw init oci --credentials /path/to/oci/config`. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
+`init oci` reads credentials from `~/.oci/config` by default and verifies them. To use a different config file: `autoresearch-anywhere init oci --credentials /path/to/oci/config`. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
 
 Estimated cloud cost: $0.08 for 1 experiment on an A10 GPU (on-demand $0.50/hr).
 

@@ -13,7 +13,7 @@ DEFAULT_IMAGE_PATTERN = "Canonical-Ubuntu-22.04-aarch64-GPU"  # GPU-enabled Ubun
 DEFAULT_BOOT_VOLUME_GB = 150
 VCN_CIDR = "10.0.0.0/16"
 SUBNET_CIDR = "10.0.0.0/24"
-DISPLAY_PREFIX = "autoresearch-aw"
+DISPLAY_PREFIX = "autoresearch-anywhere"
 
 
 # ---------------------------------------------------------------------------
@@ -31,10 +31,10 @@ def provision(config: dict, log=None) -> dict:
 
     if not compartment_id:
         raise ValueError("OCI config requires 'compartment_id'. "
-                         "Run 'autoresearch-aw init oci' to configure.")
+                         "Run 'autoresearch-anywhere init oci' to configure.")
     if not ssh_public_key_path or not key_path:
         raise ValueError("OCI config requires 'ssh_public_key_path' and 'key_path' for SSH access. "
-                         "Run 'autoresearch-aw init oci' to configure.")
+                         "Run 'autoresearch-anywhere init oci' to configure.")
 
     # Read the SSH public key
     with open(ssh_public_key_path, "r") as f:

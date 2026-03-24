@@ -16,8 +16,8 @@ from azure.mgmt.resource import ResourceManagementClient
 DEFAULT_VM_SIZE = "Standard_NC4as_T4_v3"  # T4 GPU, 4 vCPU, 28GB RAM
 DEFAULT_REGION = "eastus"
 DEFAULT_HOURLY_RATE = 0.526  # $/hr on-demand for Standard_NC4as_T4_v3
-RESOURCE_GROUP_NAME = "autoresearch-aw-rg"
-KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-aw")
+RESOURCE_GROUP_NAME = "autoresearch-anywhere-rg"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
 
 # NVIDIA GPU-optimized VM image (Ubuntu 22.04 with CUDA + drivers preinstalled)
 IMAGE_REFERENCE = {
@@ -52,7 +52,7 @@ def _get_credential(config: dict):
             tenant_id=tenant, client_id=client, client_secret=secret,
         ), sub
 
-    raise ValueError("No Azure credentials found. Run 'autoresearch-aw init azure'.")
+    raise ValueError("No Azure credentials found. Run 'autoresearch-anywhere init azure'.")
 
 
 def provision(config: dict, log=None) -> dict:
@@ -69,12 +69,12 @@ def provision(config: dict, log=None) -> dict:
     network_client = NetworkManagementClient(credential, subscription_id)
     compute_client = ComputeManagementClient(credential, subscription_id)
 
-    vm_name = "autoresearch-aw-vm"
-    nsg_name = "autoresearch-aw-nsg"
-    vnet_name = "autoresearch-aw-vnet"
-    subnet_name = "autoresearch-aw-subnet"
-    ip_name = "autoresearch-aw-ip"
-    nic_name = "autoresearch-aw-nic"
+    vm_name = "autoresearch-anywhere-vm"
+    nsg_name = "autoresearch-anywhere-nsg"
+    vnet_name = "autoresearch-anywhere-vnet"
+    subnet_name = "autoresearch-anywhere-subnet"
+    ip_name = "autoresearch-anywhere-ip"
+    nic_name = "autoresearch-anywhere-nic"
 
     if log:
         log.log(f"[azure] Region: {region}, VM size: {vm_size}")
@@ -161,7 +161,7 @@ def provision(config: dict, log=None) -> dict:
             {
                 "location": region,
                 "ip_configurations": [{
-                    "name": "autoresearch-aw-ipconfig",
+                    "name": "autoresearch-anywhere-ipconfig",
                     "subnet": {"id": subnet_id},
                     "public_ip_address": {"id": public_ip_resource.id},
                 }],
@@ -204,7 +204,7 @@ def provision(config: dict, log=None) -> dict:
             "network_profile": {
                 "network_interfaces": [{"id": nic.id}],
             },
-            "tags": {"project": "autoresearch-aw"},
+            "tags": {"project": "autoresearch-anywhere"},
         }
 
         if use_spot:
@@ -312,7 +312,7 @@ def estimate_cost(config: dict) -> dict:
 def _ensure_ssh_key(log=None) -> str:
     """Generate an SSH key pair if it doesn't exist. Returns path to private key."""
     os.makedirs(KEY_DIR, exist_ok=True)
-    key_path = os.path.join(KEY_DIR, "autoresearch-aw-azure")
+    key_path = os.path.join(KEY_DIR, "autoresearch-anywhere-azure")
 
     if os.path.exists(key_path):
         if log:
@@ -323,7 +323,7 @@ def _ensure_ssh_key(log=None) -> str:
         log.log("[azure] Creating SSH key pair...")
     import subprocess
     subprocess.run(
-        ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-aw"],
+        ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anywhere"],
         check=True, capture_output=True,
     )
     os.chmod(key_path, 0o400)
@@ -334,7 +334,7 @@ def _ensure_ssh_key(log=None) -> str:
 
 
 def _cleanup_orphaned_resources(resource_client, log=None):
-    """Delete autoresearch-aw resource group if it exists from a previous failed run."""
+    """Delete autoresearch-anywhere resource group if it exists from a previous failed run."""
     try:
         rg = resource_client.resource_groups.get(RESOURCE_GROUP_NAME)
         if rg:

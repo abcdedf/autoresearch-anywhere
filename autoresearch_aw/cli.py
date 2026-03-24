@@ -1,4 +1,4 @@
-"""CLI entry point for autoresearch-aw."""
+"""CLI entry point for autoresearch-anywhere."""
 
 import os
 import platform
@@ -18,9 +18,9 @@ from autoresearch_aw.config import (
 
 
 @click.group()
-@click.version_option(package_name="autoresearch-aw")
+@click.version_option(package_name="autoresearch-anywhere")
 def cli():
-    """autoresearch-aw — run autoresearch from anywhere."""
+    """autoresearch-anywhere — run autoresearch from anywhere."""
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ def _init_gcp(config: dict, credentials: str = None):
         click.echo("  Create a service account key (JSON) in the GCP Console:", err=True)
         click.echo("    IAM & Admin → Service Accounts → Keys → Add Key → JSON", err=True)
         click.echo("  Then either:", err=True)
-        click.echo("    autoresearch-aw init gcp --credentials /path/to/key.json", err=True)
+        click.echo("    autoresearch-anywhere init gcp --credentials /path/to/key.json", err=True)
         click.echo(f"    or move the JSON file to {gcloud_dir}/", err=True)
         sys.exit(1)
 
@@ -292,7 +292,7 @@ def _init_azure(config: dict, credentials: str = None):
         click.echo("", err=True)
         click.echo("  Save credentials as JSON (any of these locations):", err=True)
         click.echo(f"    {default_json}", err=True)
-        click.echo("    or pass via: autoresearch-aw init azure --credentials /path/to/sp.json", err=True)
+        click.echo("    or pass via: autoresearch-anywhere init azure --credentials /path/to/sp.json", err=True)
         click.echo("    or set env vars: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID", err=True)
         click.echo("", err=True)
         click.echo("  JSON format:", err=True)
@@ -346,9 +346,9 @@ def _init_oci(config: dict, credentials: str = None):
         click.echo("    1. Install OCI CLI: brew install oci-cli", err=True)
         click.echo("    2. Run: oci setup config", err=True)
         click.echo("       This creates ~/.oci/config with your tenancy, user, region, and key.", err=True)
-        click.echo("    3. Re-run: autoresearch-aw init oci", err=True)
+        click.echo("    3. Re-run: autoresearch-anywhere init oci", err=True)
         click.echo("", err=True)
-        click.echo("  Or pass an alternate config: autoresearch-aw init oci --credentials /path/to/oci/config", err=True)
+        click.echo("  Or pass an alternate config: autoresearch-anywhere init oci --credentials /path/to/oci/config", err=True)
         sys.exit(1)
 
     # Read and verify credentials

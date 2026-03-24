@@ -17,8 +17,8 @@ AMI_FILTER = "Deep Learning OSS Nvidia Driver AMI GPU PyTorch * (Ubuntu 22.04) *
 DEFAULT_INSTANCE_TYPE = "g5.xlarge"  # A10G 24GB VRAM
 DEFAULT_REGION = "us-east-1"
 DEFAULT_SPOT_MAX_PRICE = "0.50"  # ~50% of on-demand ($1.006/hr)
-KEY_PAIR_NAME = "autoresearch-aw"
-KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-aw")
+KEY_PAIR_NAME = "autoresearch-anywhere"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
 
 
 def _get_session(config: dict) -> boto3.Session:
@@ -91,7 +91,7 @@ def provision(config: dict, log=None) -> dict:
         }],
         TagSpecifications=[{
             "ResourceType": "instance",
-            "Tags": [{"Key": "Name", "Value": "autoresearch-aw"}],
+            "Tags": [{"Key": "Name", "Value": "autoresearch-anywhere"}],
         }],
     )
 
@@ -252,11 +252,11 @@ def _find_ami(ec2, log=None) -> str:
 
 
 def _cleanup_orphaned_instances(ec2, log=None):
-    """Terminate any running autoresearch-aw instances from previous failed runs."""
+    """Terminate any running autoresearch-anywhere instances from previous failed runs."""
     try:
         response = ec2.describe_instances(
             Filters=[
-                {"Name": "tag:Name", "Values": ["autoresearch-aw"]},
+                {"Name": "tag:Name", "Values": ["autoresearch-anywhere"]},
                 {"Name": "instance-state-name", "Values": ["running", "pending"]},
             ]
         )
@@ -272,7 +272,7 @@ def _cleanup_orphaned_instances(ec2, log=None):
 
 def _ensure_security_group(ec2, log=None) -> str:
     """Create or reuse a security group allowing SSH from anywhere."""
-    sg_name = "autoresearch-aw-ssh"
+    sg_name = "autoresearch-anywhere-ssh"
 
     try:
         response = ec2.describe_security_groups(
@@ -288,7 +288,7 @@ def _ensure_security_group(ec2, log=None) -> str:
 
     response = ec2.create_security_group(
         GroupName=sg_name,
-        Description="SSH access for autoresearch-aw",
+        Description="SSH access for autoresearch-anywhere",
     )
     sg_id = response["GroupId"]
 

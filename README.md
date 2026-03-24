@@ -106,9 +106,9 @@ budget:
 
 When you're ready for faster GPUs, change `platform:` in `research.yaml` and provide cloud credentials. The tool handles everything else — launching the VM, installing dependencies, running training, collecting results, and shutting down the VM.
 
-> **GPU quota required**: All cloud providers limit GPU access by default (quota = 0). Your first run will likely fail with a quota error. Request GPU access **before** your first run — it's free but can take hours to days for new accounts. See [GPU Quota](#gpu-quota) below for links.
+> **GPU quota required**: All cloud providers limit GPU access by default (quota = 0). Your first run will likely fail with a quota error. Request GPU access **before** your first run — it's free to apply but approval can take hours to days for new accounts. See [GPU Quota](#gpu-quota) below for links.
 
-> **Note on GPU compatibility**: Upstream autoresearch hardcodes batch sizes for H100 80GB GPUs. Cloud GPUs (A10G 24GB, T4 16GB) have less VRAM and will OOM with those defaults. As a workaround, this tool patches batch sizes via `sed` on the remote before training — no upstream code is modified. We plan to submit a PR to upstream to make these values configurable via environment variables.
+> **Note on GPU compatibility**: Upstream autoresearch hardcodes batch sizes for H100 80GB GPUs. Cloud GPUs (A10G 24GB, T4 16GB) have less VRAM and will OOM with those defaults. As a workaround, this tool patches batch sizes via `sed` before training. We've submitted a [PR to upstream](https://github.com/karpathy/autoresearch/pull/402) to make these values configurable via environment variables.
 
 ### AWS (no CLI install needed)
 
@@ -258,7 +258,7 @@ If combined cost hits your budget, the run stops automatically and results are c
 
 ## GPU Quota
 
-Cloud providers set GPU quota to **0** by default. Your first cloud run will fail with a quota error until you request access. Request GPU quota **before** your first run — it's free but approval takes hours to days for new accounts:
+Cloud providers set GPU quota to **0** by default. Your first cloud run will fail with a quota error until you request access. Request GPU quota **before** your first run — it's free to apply but approval takes hours to days for new accounts:
 
 | Provider | Where to request |
 |----------|-----------------|

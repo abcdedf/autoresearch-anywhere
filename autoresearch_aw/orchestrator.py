@@ -200,8 +200,8 @@ def _get_gpu_tuning(platform: str, config: dict) -> dict | None:
     return GPU_TUNING.get(instance_type)
 
 
-EXPERIMENT_TIMEOUT_MULTIPLIER = 3  # timeout = TIME_BUDGET * multiplier (covers CUDA compile, eval, overhead)
-EXPERIMENT_TIMEOUT_DEFAULT = 900   # fallback if TIME_BUDGET can't be read from prepare.py
+EXPERIMENT_TIMEOUT_OVERHEAD = 60   # seconds added to TIME_BUDGET for eval + overhead
+EXPERIMENT_TIMEOUT_DEFAULT = 360   # fallback if TIME_BUDGET can't be read (300s + 60s)
 
 
 class BudgetWatchdog:
@@ -252,7 +252,7 @@ def _get_experiment_timeout(project_root: Path, platform: str) -> int:
             match = _re.match(r'^TIME_BUDGET\s*=\s*(\d+)', line)
             if match:
                 time_budget = int(match.group(1))
-                return time_budget * EXPERIMENT_TIMEOUT_MULTIPLIER
+                return time_budget + EXPERIMENT_TIMEOUT_OVERHEAD
 
     return EXPERIMENT_TIMEOUT_DEFAULT
 
@@ -406,7 +406,7 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
                         results.append((i, None, elapsed, False))
                         break
                     elif exit_code == -1:
-                        log.log(f"  Experiment {i} timed out after {elapsed:.0f}s (limit: {EXPERIMENT_TIMEOUT}s)")
+                        log.log(f"  Experiment {i} timed out after {elapsed:.0f}s (limit: {experiment_timeout}s)")
                         results.append((i, None, elapsed, False))
                         break
                     elif ok:

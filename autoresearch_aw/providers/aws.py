@@ -152,23 +152,19 @@ def teardown(instance_info: dict, log=None):
         log.log(f"[aws] Terminating instance {instance_id}...")
 
     ec2.terminate_instances(InstanceIds=[instance_id])
-
-    # Wait for termination before deleting security group
-    waiter = ec2.get_waiter("instance_terminated")
-    waiter.wait(InstanceIds=[instance_id])
-
     if log:
-        log.log(f"[aws] Instance {instance_id} terminated.")
+        log.log(f"[aws] Instance {instance_id} termination initiated.")
 
-    # Clean up security group
+    # Try to delete security group immediately. If it fails (instance still
+    # attached), that's fine — it gets cleaned up on the next run.
     if sg_id:
         try:
             ec2.delete_security_group(GroupId=sg_id)
             if log:
                 log.log(f"[aws] Security group {sg_id} deleted.")
-        except ClientError as e:
+        except ClientError:
             if log:
-                log.log(f"[aws] Could not delete security group: {e}")
+                log.log(f"[aws] Security group {sg_id} will be cleaned up on next run.")
 
     # Note: we keep the key pair for future runs (no need to recreate each time)
 

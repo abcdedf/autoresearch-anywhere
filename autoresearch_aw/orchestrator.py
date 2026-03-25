@@ -162,42 +162,43 @@ def _run_mac(config, research, max_experiments, verbose, log: Logger):
 
 # GPU tuning: upstream train.py hardcodes for H100 80GB.
 # We sed the constants to fit the actual GPU. No upstream code changes.
-GPU_TUNING = {
-    "g5.xlarge": {  # AWS A10G 24GB
-        "gpu_name": "A10G 24GB",
-        "patches": [
-            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
-            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
-        ],
-    },
-    "g2-standard-4": {  # GCP L4 24GB
-        "gpu_name": "L4 24GB",
-        "patches": [
-            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
-            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
-        ],
-    },
-    "Standard_NV36ads_A10_v5": {  # Azure A10 24GB
-        "gpu_name": "A10 24GB",
-        "patches": [
-            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
-            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
-        ],
-    },
-    "VM.GPU.A10.1": {  # OCI A10 24GB
-        "gpu_name": "A10 24GB",
-        "patches": [
-            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
-            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
-        ],
-    },
+# Instance types that match upstream H100 80GB defaults — no tuning needed
+H100_INSTANCE_TYPES = {
+    "p5.48xlarge",              # AWS: 8x H100 80GB
+    "a3-highgpu-8g",            # GCP: 8x H100 80GB
+    "Standard_NC40ads_H100_v5", # Azure: 1x H100 80GB
+    "BM.GPU.H100.8",            # OCI: 8x H100 80GB
 }
 
 
 def _get_gpu_tuning(platform: str, config: dict) -> dict | None:
-    """Return GPU-specific patches for the target instance type."""
-    instance_type = config.get("platforms", {}).get(platform, {}).get("instance_type", "")
-    return GPU_TUNING.get(instance_type)
+    """Return GPU tuning from config. Returns dict with gpu_name and patches list, or None.
+
+    Automatically skipped for H100 instance types (upstream defaults already correct).
+    """
+    platform_config = config.get("platforms", {}).get(platform, {})
+    instance_type = platform_config.get("instance_type", "")
+
+    # H100 matches upstream defaults — no patching needed
+    if instance_type in H100_INSTANCE_TYPES:
+        return None
+
+    tuning = platform_config.get("gpu_tuning_applied_when_gpu_is_not_H100") or platform_config.get("gpu_tuning")
+    if not tuning:
+        return None
+
+    device_batch = tuning.get("device_batch_size")
+    total_batch = tuning.get("total_batch_size")
+    if not device_batch or not total_batch:
+        return None
+
+    return {
+        "gpu_name": tuning.get("gpu_name", "GPU"),
+        "patches": [
+            ("DEVICE_BATCH_SIZE = 128", f"DEVICE_BATCH_SIZE = {device_batch}"),
+            ("TOTAL_BATCH_SIZE = 2\\*\\*19", f"TOTAL_BATCH_SIZE = {total_batch}"),
+        ],
+    }
 
 
 EXPERIMENT_TIMEOUT_OVERHEAD = 300  # seconds added to TIME_BUDGET for warmup, CUDA compile, eval

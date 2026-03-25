@@ -510,10 +510,62 @@ def show_config():
 def run(config_file: str, dry_run: bool, verbose: bool):
     """Run autoresearch end to end."""
     if dry_run:
-        click.echo("Dry run not yet implemented for Mac.")
+        _dry_run(config_file)
         return
     from autoresearch_aw.orchestrator import run_experiment
     run_experiment(research_path=config_file, verbose=verbose)
+
+
+def _dry_run(config_file: str):
+    """Show what would happen without provisioning."""
+    from autoresearch_aw.orchestrator import _get_gpu_tuning, H100_INSTANCE_TYPES
+    from autoresearch_aw.cost import GPU_PRICING
+
+    config = load_config()
+    research = load_research(Path(config_file))
+    platform = research.get("platform", "mac")
+    max_experiments = research.get("research", {}).get("max_experiments", 2)
+    budget = research.get("budget", {}).get("max_cost_usd", 5.0)
+    platform_config = config.get("platforms", {}).get(platform, {})
+    instance_type = platform_config.get("instance_type", "N/A")
+
+    log_dir = config.get("log_dir", "./logs")
+    with Logger(log_dir) as log:
+        log.log("DRY RUN — no resources will be provisioned")
+        log.log()
+        log.log(f"  Platform:        {platform}")
+        log.log(f"  Instance type:   {instance_type}")
+        log.log(f"  Experiments:     {max_experiments}")
+        log.log(f"  Budget:          ${budget:.2f}")
+
+        # GPU tuning
+        tuning = _get_gpu_tuning(platform, config)
+        if instance_type in H100_INSTANCE_TYPES:
+            log.log(f"  GPU tuning:      skipped (H100 — matches upstream defaults)")
+        elif tuning:
+            log.log(f"  GPU tuning:      {tuning['gpu_name']}")
+            for old, new in tuning["patches"]:
+                log.log(f"                   {new}")
+        else:
+            log.log(f"  GPU tuning:      none")
+
+        # Cost estimate
+        hourly_rate = GPU_PRICING.get(instance_type, 0.0)
+        estimated_hours = (max_experiments * 5 + 5) / 60
+        gpu_cost = round(hourly_rate * estimated_hours, 2)
+        api_cost = round(max_experiments * 0.042, 2)
+        total = round(gpu_cost + api_cost, 2)
+
+        log.log()
+        log.log(f"  Hourly rate:     ${hourly_rate:.2f}/hr")
+        log.log(f"  Est. GPU cost:   ${gpu_cost:.2f}")
+        log.log(f"  Est. API cost:   ${api_cost:.2f}")
+        log.log(f"  Est. total:      ${total:.2f}")
+
+        if total > budget:
+            log.log(f"\n  WARNING: estimated cost (${total:.2f}) exceeds budget (${budget:.2f})")
+
+        log.log(f"\nRun without --dry-run to start.")
 
 
 @cli.command()

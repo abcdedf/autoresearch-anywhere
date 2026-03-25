@@ -2,19 +2,20 @@
 
 Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your Mac or any cloud GPU — one command, no infrastructure knowledge needed.
 
-| Platform | GPU | Cost | Status |
-|----------|-----|------|--------|
-| Mac | Apple Silicon MPS | Free | Verified |
-| AWS | A10G 24GB | $1.01/hr on-demand | Verified |
-| GCP | L4 24GB | ~$0.72/hr on-demand | Verified |
-| Azure | A10 24GB | ~$3.20/hr on-demand | Coming soon |
-| Oracle OCI | A10 24GB | $0.50/hr | Coming soon |
+| Platform | GPU (default) | Cost | Upstream match (H100 80GB) | Status |
+|----------|---------------|------|---------------------------|--------|
+| Mac | Apple Silicon MPS | Free | — | Verified |
+| AWS | A10G 24GB | $1.01/hr | p5.48xlarge (8x H100, ~$98/hr) | Verified |
+| GCP | L4 24GB | ~$0.72/hr | a3-highgpu-8g (8x H100, ~$98/hr) | Verified |
+| Azure | A10 24GB | ~$3.20/hr | NC40ads_H100_v5 (1x H100, ~$7/hr) | Coming soon |
+| Oracle OCI | A10 24GB | $0.50/hr | BM.GPU.H100.8 (8x H100, ~$44/hr) | Coming soon |
 
 ## Why This Tool?
 
 The autoresearch ecosystem has tools for [Mac/MPS](https://github.com/miolini/autoresearch-macos), [MLX](https://github.com/trevin-creator/autoresearch-mlx), and cloud orchestrators like [SkyPilot](https://github.com/skypilot-org/skypilot). But no single tool lets a researcher go from research intent to results across any platform without infrastructure knowledge. autoresearch-anywhere fills that gap:
 
 - **Minimal infrastructure setup** — provide credentials and a research config; the tool handles infrastructure setup, running of autoresearch, and infrastructure teardown
+- **No babysitting** — experiments have timeouts, a budget watchdog aborts if spend exceeds your limit, and try/finally guarantees the cloud VM is torn down whether the run succeeds, fails, or hangs.
 - **Cost tracking and budget enforcement** — no tool in the ecosystem tracks spend or enforces budgets
 - **Unified logging and result collection** — provision, run, collect, teardown in one command with one log
 - **True multi-platform** — same CLI, same workflow, any hardware
@@ -327,6 +328,32 @@ Cloud providers set GPU quota to **0** by default. Your first cloud run will fai
 - Credentials never stored in the project — they live in standard locations on your machine (`~/.aws/`, `~/.config/gcloud/`, `~/.azure/`, etc.)
 - API keys reach cloud VMs via SSH environment variables at runtime, never written to disk
 - VMs are destroyed after each run — no lingering resources
+
+## Contributing
+
+We aim to support AWS, GCP, Azure, and Oracle OCI. Want to add another cloud provider (Lambda Labs, CoreWeave, Paperspace, etc.)? Contributions are welcome:
+
+- **Add a provider**: create a single Python file under `autoresearch_aw/providers/` that implements three functions:
+
+  ```python
+  def provision(config: dict, log=None) -> dict:
+      """Launch a GPU instance. Return a dict with at least:
+         instance_id, public_ip, region, key_path
+         (plus any IDs needed for teardown)."""
+
+  def teardown(instance_info: dict, log=None):
+      """Terminate the instance and clean up all resources.
+         instance_info is the dict returned by provision()."""
+
+  def estimate_cost(config: dict) -> dict:
+      """Return {"hourly_rate_usd": float,
+                 "estimated_hours": float,
+                 "estimated_cost_usd": float}."""
+  ```
+
+  Then add the provider to the `elif` chain in `orchestrator.py` and `cli.py`. See `aws.py` or `gcp.py` for working examples.
+
+- **Request a provider**: [open an issue](https://github.com/abcdedf/autoresearch-anywhere/issues) describing the platform and we'll prioritize it.
 
 ## Acknowledgments
 

@@ -14,7 +14,7 @@ PLATFORMS = ["mac", "aws", "gcp", "azure", "oci"]
 EXPECTED = {
     "mac": {
         "instance_type": "N/A",
-        "gpu_tuning": "none",
+        "gpu_tuning": "upstream default",
         "hourly_rate": "$0.00/hr",
         "batch_size": None,         # no tuning for mac
     },
@@ -61,7 +61,7 @@ def run_dry_run(platform: str) -> tuple[str, str]:
         """))
         f.flush()
         result = subprocess.run(
-            ["uv", "run", "autoresearch-anywhere", "run", "--dry-run", f.name],
+            ["uv", "run", "autoresearch-anycloud", "run", "--dry-run", f.name],
             capture_output=True, text=True,
         )
         console = result.stdout + result.stderr
@@ -98,6 +98,15 @@ def check(console: str, log: str, platform: str) -> list[str]:
 
         if expected["batch_size"] and expected["batch_size"] not in output:
             errors.append(f"{source_name}: wrong batch_size (expected {expected['batch_size']})")
+
+        # time_budget: if set in config, verify value is picked up; otherwise upstream default
+        expected_tb = expected.get("time_budget")
+        if expected_tb:
+            if f"Time budget:     {expected_tb}" not in output:
+                errors.append(f"{source_name}: wrong time_budget (expected {expected_tb})")
+        else:
+            if "Time budget:     upstream default" not in output:
+                errors.append(f"{source_name}: missing time_budget upstream default")
 
         if "Est. total:" not in output:
             errors.append(f"{source_name}: missing cost estimate")

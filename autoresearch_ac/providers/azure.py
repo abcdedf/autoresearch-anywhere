@@ -16,8 +16,8 @@ from azure.mgmt.resource import ResourceManagementClient
 DEFAULT_VM_SIZE = "Standard_NV36ads_A10_v5"  # A10 GPU 24GB, 36 vCPU, 440GB RAM (Ampere)
 DEFAULT_REGION = "eastus"
 DEFAULT_HOURLY_RATE = 3.20  # $/hr on-demand for Standard_NV36ads_A10_v5
-RESOURCE_GROUP_NAME = "autoresearch-anywhere-rg"
-KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
+RESOURCE_GROUP_NAME = "autoresearch-anycloud-rg"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anycloud")
 
 # NVIDIA GPU-optimized VM image (Ubuntu 22.04 with CUDA + drivers preinstalled)
 IMAGE_REFERENCE = {
@@ -52,7 +52,7 @@ def _get_credential(config: dict):
             tenant_id=tenant, client_id=client, client_secret=secret,
         ), sub
 
-    raise ValueError("No Azure credentials found. Run 'autoresearch-anywhere init azure'.")
+    raise ValueError("No Azure credentials found. Run 'autoresearch-anycloud init azure'.")
 
 
 def provision(config: dict, log=None) -> dict:
@@ -69,12 +69,12 @@ def provision(config: dict, log=None) -> dict:
     network_client = NetworkManagementClient(credential, subscription_id)
     compute_client = ComputeManagementClient(credential, subscription_id)
 
-    vm_name = "autoresearch-anywhere-vm"
-    nsg_name = "autoresearch-anywhere-nsg"
-    vnet_name = "autoresearch-anywhere-vnet"
-    subnet_name = "autoresearch-anywhere-subnet"
-    ip_name = "autoresearch-anywhere-ip"
-    nic_name = "autoresearch-anywhere-nic"
+    vm_name = "autoresearch-anycloud-vm"
+    nsg_name = "autoresearch-anycloud-nsg"
+    vnet_name = "autoresearch-anycloud-vnet"
+    subnet_name = "autoresearch-anycloud-subnet"
+    ip_name = "autoresearch-anycloud-ip"
+    nic_name = "autoresearch-anycloud-nic"
 
     if log:
         log.log(f"[azure] Region: {region}, VM size: {vm_size}")
@@ -161,7 +161,7 @@ def provision(config: dict, log=None) -> dict:
             {
                 "location": region,
                 "ip_configurations": [{
-                    "name": "autoresearch-anywhere-ipconfig",
+                    "name": "autoresearch-anycloud-ipconfig",
                     "subnet": {"id": subnet_id},
                     "public_ip_address": {"id": public_ip_resource.id},
                 }],
@@ -204,7 +204,7 @@ def provision(config: dict, log=None) -> dict:
             "network_profile": {
                 "network_interfaces": [{"id": nic.id}],
             },
-            "tags": {"project": "autoresearch-anywhere"},
+            "tags": {"project": "autoresearch-anycloud"},
         }
 
         if use_spot:
@@ -289,6 +289,85 @@ def teardown(instance_info: dict, log=None):
         raise
 
 
+def preflight_check(config: dict, log=None) -> list[dict]:
+    """Validate credentials, VM size, image, and GPU quota. No resources created."""
+    results = []
+    azure_config = config.get("platforms", {}).get("azure", {})
+    region = azure_config.get("region", DEFAULT_REGION)
+    vm_size = azure_config.get("instance_type", DEFAULT_VM_SIZE)
+
+    # 1. Credentials
+    try:
+        credential, subscription_id = _get_credential(config)
+        credential.get_token("https://management.azure.com/.default")
+        results.append({"check": "Credentials", "status": "pass",
+                        "detail": f"subscription {subscription_id}"})
+    except Exception as e:
+        results.append({"check": "Credentials", "status": "fail",
+                        "detail": str(e)})
+        return results
+
+    compute_client = ComputeManagementClient(credential, subscription_id)
+
+    # 2. VM size available in region
+    try:
+        sizes = list(compute_client.virtual_machine_sizes.list(location=region))
+        size_names = {s.name for s in sizes}
+        if vm_size in size_names:
+            results.append({"check": "VM size", "status": "pass",
+                            "detail": f"{vm_size} available in {region}"})
+        else:
+            results.append({"check": "VM size", "status": "fail",
+                            "detail": f"{vm_size} not available in {region}"})
+    except Exception as e:
+        results.append({"check": "VM size", "status": "fail",
+                        "detail": str(e)})
+
+    # 3. Image exists
+    try:
+        images = list(compute_client.virtual_machine_images.list(
+            location=region,
+            publisher_name=IMAGE_REFERENCE["publisher"],
+            offer=IMAGE_REFERENCE["offer"],
+            skus=IMAGE_REFERENCE["sku"],
+        ))
+        if images:
+            results.append({"check": "Image", "status": "pass",
+                            "detail": f"{IMAGE_REFERENCE['publisher']}/{IMAGE_REFERENCE['offer']}/{IMAGE_REFERENCE['sku']} ({len(images)} versions)"})
+        else:
+            results.append({"check": "Image", "status": "fail",
+                            "detail": "No matching image found"})
+    except Exception as e:
+        results.append({"check": "Image", "status": "fail",
+                        "detail": str(e)})
+
+    # 4. GPU quota (the known blocker for Azure)
+    try:
+        usages = list(compute_client.usage.list(location=region))
+        # Azure VM family names vary — search for a match
+        vm_family_lower = vm_size.lower()
+        found_quota = False
+        for usage in usages:
+            if usage.name and usage.name.localized_value and vm_family_lower[:10] in usage.name.localized_value.lower():
+                found_quota = True
+                available = usage.limit - usage.current_value
+                if available >= 36:  # NV36ads needs 36 cores
+                    results.append({"check": "vCPU quota", "status": "pass",
+                                    "detail": f"{usage.name.localized_value}: {available} available (limit {usage.limit})"})
+                else:
+                    results.append({"check": "vCPU quota", "status": "fail",
+                                    "detail": f"{usage.name.localized_value}: {available} available, need 36. Request increase at portal.azure.com → Quotas"})
+                break
+        if not found_quota:
+            results.append({"check": "vCPU quota", "status": "warn",
+                            "detail": f"Could not find quota for VM family matching {vm_size}"})
+    except Exception as e:
+        results.append({"check": "vCPU quota", "status": "warn",
+                        "detail": f"Could not check quota: {e}"})
+
+    return results
+
+
 def estimate_cost(config: dict) -> dict:
     """Estimate cost for a run. Returns dict with hourly rate and estimated total."""
     azure_config = config.get("platforms", {}).get("azure", {})
@@ -312,7 +391,7 @@ def estimate_cost(config: dict) -> dict:
 def _ensure_ssh_key(log=None) -> str:
     """Generate an SSH key pair if it doesn't exist. Returns path to private key."""
     os.makedirs(KEY_DIR, exist_ok=True)
-    key_path = os.path.join(KEY_DIR, "autoresearch-anywhere-azure")
+    key_path = os.path.join(KEY_DIR, "autoresearch-anycloud-azure")
 
     if os.path.exists(key_path):
         if log:
@@ -323,7 +402,7 @@ def _ensure_ssh_key(log=None) -> str:
         log.log("[azure] Creating SSH key pair...")
     import subprocess
     subprocess.run(
-        ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anywhere"],
+        ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anycloud"],
         check=True, capture_output=True,
     )
     os.chmod(key_path, 0o400)
@@ -334,7 +413,7 @@ def _ensure_ssh_key(log=None) -> str:
 
 
 def _cleanup_orphaned_resources(resource_client, log=None):
-    """Delete autoresearch-anywhere resource group if it exists from a previous failed run."""
+    """Delete autoresearch-anycloud resource group if it exists from a previous failed run."""
     try:
         rg = resource_client.resource_groups.get(RESOURCE_GROUP_NAME)
         if rg:

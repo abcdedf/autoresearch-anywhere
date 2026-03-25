@@ -1,0 +1,24 @@
+Title: autoresearch-anycloud: run autoresearch on Mac or any cloud GPU with one command
+
+Category: Show and Tell (or General)
+
+---
+
+I built a CLI wrapper that lets you run autoresearch on your Mac or any major cloud GPU without dealing with infrastructure.
+
+The problem I kept hitting: every time I wanted to run autoresearch on a new platform, I spent more time figuring out the right instance type, patching batch sizes for the GPU, setting up SSH, and making sure the VM gets torn down than thinking about the actual research.
+
+autoresearch-anycloud handles all of that. You write a short YAML describing your research intent, and one command does the rest:
+
+  autoresearch-anycloud init gcp
+  autoresearch-anycloud run
+
+It provisions the right GPU instance, patches train.py for the specific GPU (e.g., batch sizes for A10G/L4/A10 vs H100), forwards API keys securely, streams logs, enforces a budget ceiling, and tears down the VM when done.
+
+Supported platforms: Mac (Apple Silicon MPS), AWS (A10G), GCP (L4), Azure (A10), Oracle OCI (A10). Mac/AWS/GCP verified end-to-end.
+
+Cost per proof-of-concept experiment (max_experiments: 1): $0.00 on Mac, $0.17 on AWS, $0.12 on GCP.
+
+GitHub: https://github.com/abcdedf/autoresearch-anycloud
+
+Happy to hear feedback or suggestions. If anyone wants to add support for other providers (Lambda Labs, CoreWeave, etc.), the provider interface is documented in the README.

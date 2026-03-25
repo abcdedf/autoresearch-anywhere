@@ -13,8 +13,8 @@ DEFAULT_HOURLY_RATE = 0.50              # estimated $/hr for GPU shapes
 DEFAULT_BOOT_VOLUME_GB = 150
 VCN_CIDR = "10.0.0.0/16"
 SUBNET_CIDR = "10.0.0.0/24"
-DISPLAY_PREFIX = "autoresearch-anywhere"
-KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
+DISPLAY_PREFIX = "autoresearch-anycloud"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anycloud")
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ def provision(config: dict, log=None) -> dict:
 
     if not compartment_id:
         raise ValueError("OCI config requires 'compartment_id'. "
-                         "Run 'autoresearch-anywhere init oci' to configure.")
+                         "Run 'autoresearch-anycloud init oci' to configure.")
 
     # Generate SSH key pair (like GCP provider)
     key_path, ssh_public_key = _ensure_ssh_key(log)
@@ -190,6 +190,94 @@ def teardown(instance_info: dict, log=None):
         _safe_delete(network.delete_vcn, vcn_id, "VCN", log)
 
 
+def preflight_check(config: dict, log=None) -> list[dict]:
+    """Validate credentials, shape availability, image, and GPU quota. No resources created."""
+    results = []
+    oci_config = config.get("platforms", {}).get("oci", {})
+    region = oci_config.get("region", DEFAULT_REGION)
+    shape = oci_config.get("instance_type", oci_config.get("shape", DEFAULT_SHAPE))
+    compartment_id = oci_config.get("compartment_id")
+
+    if not compartment_id:
+        results.append({"check": "Config", "status": "fail",
+                        "detail": "No compartment_id configured"})
+        return results
+
+    # 1. Credentials
+    try:
+        sdk_config = oci.config.from_file()
+        sdk_config["region"] = region
+        identity = oci.identity.IdentityClient(sdk_config)
+        tenancy = identity.get_tenancy(sdk_config["tenancy"]).data
+        results.append({"check": "Credentials", "status": "pass",
+                        "detail": f"tenancy {tenancy.name}"})
+    except Exception as e:
+        results.append({"check": "Credentials", "status": "fail",
+                        "detail": str(e)})
+        return results
+
+    # 2. Compartment access
+    try:
+        ads = identity.list_availability_domains(compartment_id).data
+        ad_names = [ad.name for ad in ads]
+        results.append({"check": "Compartment", "status": "pass",
+                        "detail": f"{len(ads)} availability domains"})
+    except Exception as e:
+        results.append({"check": "Compartment", "status": "fail",
+                        "detail": str(e)})
+        return results
+
+    compute = oci.core.ComputeClient(sdk_config)
+
+    # 3. Shape available
+    try:
+        shapes = compute.list_shapes(compartment_id).data
+        shape_names = [s.shape for s in shapes]
+        if shape in shape_names:
+            results.append({"check": "Shape", "status": "pass",
+                            "detail": f"{shape} available"})
+        else:
+            results.append({"check": "Shape", "status": "fail",
+                            "detail": f"{shape} not available. Available GPU shapes: {[s for s in shape_names if 'GPU' in s]}"})
+    except Exception as e:
+        results.append({"check": "Shape", "status": "fail",
+                        "detail": str(e)})
+
+    # 4. Compatible image exists
+    try:
+        image_id = _find_image(compute, compartment_id, shape)
+        results.append({"check": "Image", "status": "pass",
+                        "detail": f"{image_id[:40]}..."})
+    except Exception as e:
+        results.append({"check": "Image", "status": "fail",
+                        "detail": str(e)})
+
+    # 5. GPU limit/availability
+    try:
+        limits_client = oci.limits.LimitsClient(sdk_config)
+        # Shape name like VM.GPU.A10.1 → limit name like vm-gpu-a10-count
+        limit_name = shape.lower().replace(".", "-").rsplit("-", 1)[0] + "-count"
+        for ad_name in ad_names:
+            avail = limits_client.get_resource_availability(
+                service_name="compute",
+                limit_name=limit_name,
+                compartment_id=compartment_id,
+                availability_domain=ad_name,
+            ).data
+            if avail.available and int(avail.available) > 0:
+                results.append({"check": "GPU quota", "status": "pass",
+                                "detail": f"{avail.available} available in {ad_name.split(':')[-1]}"})
+                break
+        else:
+            results.append({"check": "GPU quota", "status": "fail",
+                            "detail": f"0 available for {limit_name} in all ADs. Request increase at cloud.oracle.com/limits"})
+    except Exception as e:
+        results.append({"check": "GPU quota", "status": "warn",
+                        "detail": f"Could not check quota: {e}"})
+
+    return results
+
+
 def estimate_cost(config: dict) -> dict:
     """Estimate cost for a run. Returns dict with hourly rate and estimated total."""
     oci_config = config.get("platforms", {}).get("oci", {})
@@ -242,7 +330,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
     Returns (private_key_path, public_key_content).
     """
     os.makedirs(KEY_DIR, exist_ok=True)
-    key_path = os.path.join(KEY_DIR, "autoresearch-anywhere-oci")
+    key_path = os.path.join(KEY_DIR, "autoresearch-anycloud-oci")
 
     if os.path.exists(key_path):
         if log:
@@ -252,7 +340,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
             log.log("[oci] Creating SSH key pair...")
         import subprocess
         subprocess.run(
-            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anywhere"],
+            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anycloud"],
             check=True, capture_output=True,
         )
         os.chmod(key_path, 0o400)

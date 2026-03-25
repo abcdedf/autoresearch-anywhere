@@ -23,10 +23,10 @@ DEFAULT_HOURLY_RATE = 0.72  # $/hr for g2-standard-4 (L4) on-demand
 # Machine type families where the GPU is built in (no guest_accelerators needed)
 ACCELERATOR_INCLUSIVE_FAMILIES = ("g2", "a2", "a3")
 BOOT_DISK_SIZE_GB = 150
-FIREWALL_RULE_NAME = "autoresearch-anywhere-allow-ssh"
-INSTANCE_NAME = "autoresearch-anywhere"
-NETWORK_TAG = "autoresearch-anywhere"
-KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
+FIREWALL_RULE_NAME = "autoresearch-anycloud-allow-ssh"
+INSTANCE_NAME = "autoresearch-anycloud"
+NETWORK_TAG = "autoresearch-anycloud"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anycloud")
 
 
 def _get_credentials(config: dict):
@@ -53,7 +53,7 @@ def provision(config: dict, log=None) -> dict:
 
     if not project:
         raise ValueError("GCP config requires 'project' (your GCP project ID). "
-                         "Run 'autoresearch-anywhere init gcp' to configure.")
+                         "Run 'autoresearch-anycloud init gcp' to configure.")
 
     credentials = _get_credentials(config)
 
@@ -165,6 +165,83 @@ def teardown(instance_info: dict, log=None):
             log.log(f"[gcp] Could not delete firewall rule: {e}")
 
 
+def preflight_check(config: dict, log=None) -> list[dict]:
+    """Validate credentials, machine type, image, and GPU quota. No resources created."""
+    results = []
+    gcp_config = config.get("platforms", {}).get("gcp", {})
+    project = gcp_config.get("project")
+    zone = gcp_config.get("zone", DEFAULT_ZONE)
+    region = gcp_config.get("region", DEFAULT_REGION)
+    instance_type = gcp_config.get("instance_type", DEFAULT_INSTANCE_TYPE)
+
+    if not project:
+        results.append({"check": "Project", "status": "fail",
+                        "detail": "No GCP project configured"})
+        return results
+
+    # 1. Credentials
+    try:
+        credentials = _get_credentials(config)
+        instances_client = compute_v1.InstancesClient(credentials=credentials)
+        # Make a lightweight read-only call to validate credentials
+        request = compute_v1.ListInstancesRequest(project=project, zone=zone, max_results=1)
+        list(instances_client.list(request=request))
+        results.append({"check": "Credentials", "status": "pass",
+                        "detail": f"project {project}"})
+    except Exception as e:
+        results.append({"check": "Credentials", "status": "fail",
+                        "detail": str(e)})
+        return results
+
+    # 2. Machine type exists in zone
+    try:
+        mt_client = compute_v1.MachineTypesClient(credentials=credentials)
+        mt = mt_client.get(project=project, zone=zone, machine_type=instance_type)
+        results.append({"check": "Machine type", "status": "pass",
+                        "detail": f"{instance_type} in {zone} ({mt.description})"})
+    except Exception as e:
+        results.append({"check": "Machine type", "status": "fail",
+                        "detail": f"{instance_type} not found in {zone}: {e}"})
+
+    # 3. Image exists
+    try:
+        images_client = compute_v1.ImagesClient(credentials=credentials)
+        image = images_client.get_from_family(project=IMAGE_PROJECT, family=IMAGE_FAMILY)
+        results.append({"check": "Image", "status": "pass",
+                        "detail": image.name})
+    except Exception as e:
+        results.append({"check": "Image", "status": "fail",
+                        "detail": str(e)})
+
+    # 4. GPU quota
+    try:
+        regions_client = compute_v1.RegionsClient(credentials=credentials)
+        region_info = regions_client.get(project=project, region=region)
+        # Look for GPU quota matching the configured GPU type
+        gpu_type_upper = gcp_config.get("gpu_type", DEFAULT_GPU_TYPE).replace("-", "_").upper()
+        gpu_metric = f"{gpu_type_upper}_GPUS"  # e.g. NVIDIA_L4_GPUS
+        found_quota = False
+        for quota in region_info.quotas:
+            if gpu_metric in quota.metric:
+                found_quota = True
+                available = quota.limit - quota.usage
+                if available > 0:
+                    results.append({"check": "GPU quota", "status": "pass",
+                                    "detail": f"{quota.metric}: {available:.0f} available (limit {quota.limit:.0f})"})
+                else:
+                    results.append({"check": "GPU quota", "status": "fail",
+                                    "detail": f"{quota.metric}: 0 available (limit {quota.limit:.0f}). Request increase at console.cloud.google.com/iam-admin/quotas"})
+                break
+        if not found_quota:
+            results.append({"check": "GPU quota", "status": "warn",
+                            "detail": f"Could not find quota metric for {gpu_metric}"})
+    except Exception as e:
+        results.append({"check": "GPU quota", "status": "warn",
+                        "detail": f"Could not check quota: {e}"})
+
+    return results
+
+
 def estimate_cost(config: dict) -> dict:
     """Estimate cost for a run. Returns dict with hourly rate and estimated total."""
     gcp_config = config.get("platforms", {}).get("gcp", {})
@@ -192,7 +269,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
     to the instance (not project) so only Compute Admin is needed.
     """
     os.makedirs(KEY_DIR, exist_ok=True)
-    key_path = os.path.join(KEY_DIR, "autoresearch-anywhere-gcp")
+    key_path = os.path.join(KEY_DIR, "autoresearch-anycloud-gcp")
 
     if os.path.exists(key_path):
         if log:
@@ -203,7 +280,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
             log.log("[gcp] Creating SSH key pair...")
         import subprocess
         subprocess.run(
-            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anywhere"],
+            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anycloud"],
             check=True, capture_output=True,
         )
         os.chmod(key_path, 0o400)
@@ -221,7 +298,7 @@ def _ensure_ssh_key(log=None) -> tuple[str, str]:
 
 
 def _cleanup_orphaned_instances(project: str, zone: str, credentials=None, log=None):
-    """Terminate any running autoresearch-anywhere instances from previous failed runs."""
+    """Terminate any running autoresearch-anycloud instances from previous failed runs."""
     try:
         instances_client = compute_v1.InstancesClient(credentials=credentials)
         request = compute_v1.ListInstancesRequest(
@@ -361,7 +438,7 @@ def _ensure_firewall_rule(project: str, credentials=None, log=None):
         ],
         source_ranges=["0.0.0.0/0"],
         target_tags=[NETWORK_TAG],
-        description="SSH access for autoresearch-anywhere",
+        description="SSH access for autoresearch-anycloud",
     )
 
     operation = firewalls_client.insert(

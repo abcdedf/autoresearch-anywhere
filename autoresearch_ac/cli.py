@@ -1,4 +1,4 @@
-"""CLI entry point for autoresearch-anywhere."""
+"""CLI entry point for autoresearch-anycloud."""
 
 import os
 import platform
@@ -8,20 +8,20 @@ from pathlib import Path
 import click
 import yaml
 
-from autoresearch_aw.config import (
+from autoresearch_ac.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_RESEARCH_PATH,
     load_config,
     load_research,
     save_config,
 )
-from autoresearch_aw.log import Logger
+from autoresearch_ac.log import Logger
 
 
 @click.group()
-@click.version_option(package_name="autoresearch-anywhere")
+@click.version_option(package_name="autoresearch-anycloud")
 def cli():
-    """autoresearch-anywhere — run autoresearch from anywhere."""
+    """autoresearch-anycloud — run autoresearch on any cloud GPU."""
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ def _init_gcp(config: dict, credentials: str = None, log=None):
         click.echo("  Create a service account key (JSON) in the GCP Console:", err=True)
         click.echo("    IAM & Admin → Service Accounts → Keys → Add Key → JSON", err=True)
         click.echo("  Then either:", err=True)
-        click.echo("    autoresearch-anywhere init gcp --credentials /path/to/key.json", err=True)
+        click.echo("    autoresearch-anycloud init gcp --credentials /path/to/key.json", err=True)
         click.echo(f"    or move the JSON file to {gcloud_dir}/", err=True)
         sys.exit(1)
 
@@ -294,7 +294,7 @@ def _init_azure(config: dict, credentials: str = None, log=None):
         click.echo("", err=True)
         click.echo("  Save credentials as JSON (any of these locations):", err=True)
         click.echo(f"    {default_json}", err=True)
-        click.echo("    or pass via: autoresearch-anywhere init azure --credentials /path/to/sp.json", err=True)
+        click.echo("    or pass via: autoresearch-anycloud init azure --credentials /path/to/sp.json", err=True)
         click.echo("    or set env vars: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID", err=True)
         click.echo("", err=True)
         click.echo("  JSON format:", err=True)
@@ -346,7 +346,7 @@ def _init_oci(config: dict, credentials: str = None, log=None):
         log.log("    1. OCI Console -> My profile -> API keys -> Add API key -> Generate API key pair")
         log.log("    2. Download the private key and save to ~/.oci/oci_api_key.pem")
         log.log("    3. Create ~/.oci/config with user, fingerprint, tenancy, region, key_file, and compartment")
-        log.log("    4. Re-run: autoresearch-anywhere init oci")
+        log.log("    4. Re-run: autoresearch-anycloud init oci")
         log.log("  See README.md -> Oracle OCI for step-by-step instructions.")
         sys.exit(1)
 
@@ -506,20 +506,24 @@ def show_config():
 @cli.command()
 @click.argument("config_file", default="research.yaml", required=False)
 @click.option("--dry-run", is_flag=True, help="Validate config without provisioning")
+@click.option("--preflight", is_flag=True, help="Validate credentials, quotas, and images without provisioning")
 @click.option("--verbose", is_flag=True, help="Detailed logging")
-def run(config_file: str, dry_run: bool, verbose: bool):
+def run(config_file: str, dry_run: bool, preflight: bool, verbose: bool):
     """Run autoresearch end to end."""
     if dry_run:
         _dry_run(config_file)
         return
-    from autoresearch_aw.orchestrator import run_experiment
+    if preflight:
+        _preflight(config_file)
+        return
+    from autoresearch_ac.orchestrator import run_experiment
     run_experiment(research_path=config_file, verbose=verbose)
 
 
 def _dry_run(config_file: str):
     """Show what would happen without provisioning."""
-    from autoresearch_aw.orchestrator import _get_gpu_tuning, H100_INSTANCE_TYPES
-    from autoresearch_aw.cost import GPU_PRICING
+    from autoresearch_ac.orchestrator import _get_gpu_tuning, H100_INSTANCE_TYPES
+    from autoresearch_ac.cost import GPU_PRICING
 
     config = load_config()
     research = load_research(Path(config_file))
@@ -535,7 +539,12 @@ def _dry_run(config_file: str):
         log.log()
         log.log(f"  Platform:        {platform}")
         log.log(f"  Instance type:   {instance_type}")
+        time_budget = research.get("research", {}).get("time_budget")
         log.log(f"  Experiments:     {max_experiments}")
+        if time_budget:
+            log.log(f"  Time budget:     {time_budget}s per experiment")
+        else:
+            log.log(f"  Time budget:     upstream default")
         log.log(f"  Budget:          ${budget:.2f}")
 
         # GPU tuning
@@ -547,7 +556,7 @@ def _dry_run(config_file: str):
             for old, new in tuning["patches"]:
                 log.log(f"                   {new}")
         else:
-            log.log(f"  GPU tuning:      none")
+            log.log(f"  GPU tuning:      upstream default")
 
         # Cost estimate
         hourly_rate = GPU_PRICING.get(instance_type, 0.0)
@@ -566,6 +575,62 @@ def _dry_run(config_file: str):
             log.log(f"\n  WARNING: estimated cost (${total:.2f}) exceeds budget (${budget:.2f})")
 
         log.log(f"\nRun without --dry-run to start.")
+
+
+def _preflight(config_file: str):
+    """Validate credentials, quotas, and images for the target platform."""
+    config = load_config()
+    research = load_research(Path(config_file))
+    platform = research.get("platform", "mac")
+
+    log_dir = config.get("log_dir", "./logs")
+    with Logger(log_dir) as log:
+        log.log(f"PREFLIGHT — validating infrastructure for {platform}")
+        log.log()
+
+        if platform == "mac":
+            log.log("  [PASS] Mac — no cloud infrastructure to validate")
+            log.log("\nAll checks passed. Ready to run.")
+            return
+
+        # Import the provider's preflight_check
+        provider_mod = None
+        if platform == "aws":
+            from autoresearch_ac.providers import aws as provider_mod
+        elif platform == "gcp":
+            from autoresearch_ac.providers import gcp as provider_mod
+        elif platform == "azure":
+            from autoresearch_ac.providers import azure as provider_mod
+        elif platform == "oci":
+            from autoresearch_ac.providers import oci as provider_mod
+        else:
+            log.log(f"  [FAIL] Unknown platform: {platform}")
+            return
+
+        results = provider_mod.preflight_check(config, log)
+
+        passed = 0
+        failed = 0
+        warned = 0
+        for r in results:
+            status = r["status"].upper()
+            tag = {"PASS": "PASS", "FAIL": "FAIL", "WARN": "WARN"}[status]
+            log.log(f"  [{tag}] {r['check']}: {r['detail']}")
+            if status == "PASS":
+                passed += 1
+            elif status == "FAIL":
+                failed += 1
+            else:
+                warned += 1
+
+        log.log()
+        if failed:
+            log.log(f"{failed} check(s) failed. Fix the issues above before running.")
+        else:
+            msg = "All checks passed. Ready to run."
+            if warned:
+                msg = f"All checks passed ({warned} warning(s)). Ready to run."
+            log.log(msg)
 
 
 @cli.command()

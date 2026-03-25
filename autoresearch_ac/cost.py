@@ -1,4 +1,4 @@
-"""Cost tracking for autoresearch-anywhere — GPU compute + LLM API costs, reported separately.
+"""Cost tracking for autoresearch-anycloud — GPU compute + LLM API costs, reported separately.
 
 Cloud cost: estimated from public spot pricing × elapsed time. Source: AWS/GCP/Azure/OCI pricing pages.
 API cost:   estimated from per-experiment token usage × published per-token rates.

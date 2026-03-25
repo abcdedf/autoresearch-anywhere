@@ -1,8 +1,8 @@
-# CLAUDE.md — autoresearch-anywhere
+# CLAUDE.md — autoresearch-anycloud
 
 ## Project Overview
 
-**autoresearch-anywhere (Autoresearch from Anywhere)** — a Python CLI tool that wraps Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) to let researchers run autonomous AI experiments on Mac or any cloud platform with minimal infrastructure knowledge.
+**autoresearch-anycloud** — a Python CLI tool that wraps Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) to let researchers run autonomous AI experiments on Mac or any cloud platform with minimal infrastructure knowledge.
 
 ## Core Principle
 
@@ -25,7 +25,7 @@ The researcher thinks about the research problem. This tool thinks about the inf
 - **`init` separates one-time setup from runtime** — platform preferences stored in `./config.yaml` (committed), no credentials stored in project
 - **No credential storage** — API keys from env vars, cloud credentials from standard SDK auth (~/.aws/credentials, ~/.config/gcloud/, ~/.azure/, ~/.oci/config). Keys reach cloud VMs via SSH env vars at runtime, never written to disk.
 - **uv** as the package manager (matching autoresearch upstream)
-- **Optional dependencies** — `pip install autoresearch-anywhere[aws]` installs only what you need
+- **Optional dependencies** — `pip install autoresearch-anycloud[aws]` installs only what you need
 
 ## Development Constraints
 
@@ -53,7 +53,7 @@ The researcher thinks about the research problem. This tool thinks about the inf
 
 ### Run Monitoring Policy
 
-When running `autoresearch-anywhere run` or any long-running command:
+When running `autoresearch-anycloud run` or any long-running command:
 
 1. **Launch the run in background** using `run_in_background`.
 2. **Monitor `logs/run_latest.log` every 20 seconds** — read the last ~20 lines to check progress.
@@ -73,14 +73,14 @@ When running `autoresearch-anywhere run` or any long-running command:
 - `README.md` — user manual
 - `config.yaml` — platform settings (committed, no credentials)
 - `research.yaml` — research intent (committed)
-- `autoresearch_aw/cli.py` — CLI entry point
-- `autoresearch_aw/config.py` — declarative config parser
-- `autoresearch_aw/orchestrator.py` — provision → setup → run → collect → teardown
-- `autoresearch_aw/providers/aws.py` — AWS provider (boto3)
-- `autoresearch_aw/providers/gcp.py` — GCP provider (google-cloud-compute)
-- `autoresearch_aw/providers/azure.py` — Azure provider (azure-mgmt-compute)
-- `autoresearch_aw/providers/oci.py` — Oracle OCI provider (oci SDK)
-- `autoresearch_aw/providers/ssh.py` — shared SSH/SCP helper (paramiko)
+- `autoresearch_ac/cli.py` — CLI entry point
+- `autoresearch_ac/config.py` — declarative config parser
+- `autoresearch_ac/orchestrator.py` — provision → setup → run → collect → teardown
+- `autoresearch_ac/providers/aws.py` — AWS provider (boto3)
+- `autoresearch_ac/providers/gcp.py` — GCP provider (google-cloud-compute)
+- `autoresearch_ac/providers/azure.py` — Azure provider (azure-mgmt-compute)
+- `autoresearch_ac/providers/oci.py` — Oracle OCI provider (oci SDK)
+- `autoresearch_ac/providers/ssh.py` — shared SSH/SCP helper (paramiko)
 - `platforms/mac/train.py` — Mac-adapted training script (based on miolini)
 - `platforms/mac/prepare.py` — Mac-adapted data prep script (based on miolini)
 - `upstream/autoresearch/` — Karpathy's original repo (git submodule)

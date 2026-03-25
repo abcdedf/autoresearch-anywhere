@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# asciinema demo script for autoresearch-anywhere
+# asciinema demo script for autoresearch-anycloud
 #
 # Records a ~2 min demo showing the Mac flow end-to-end.
 # The actual training takes ~15 min, so we fake the training output
@@ -34,24 +34,24 @@ type_cmd() {
 pause() { sleep "${1:-1.5}"; }
 
 clear
-echo "# autoresearch-anywhere — demo"
+echo "# autoresearch-anycloud — demo"
 echo "# Run Karpathy's autoresearch on Mac or any cloud GPU"
 echo ""
 pause 2
 
 # --- Clone and setup ---
-type_cmd "git clone https://github.com/abcdedf/autoresearch-anywhere.git"
-echo "Cloning into 'autoresearch-anywhere'..."
+type_cmd "git clone https://github.com/abcdedf/autoresearch-anycloud.git"
+echo "Cloning into 'autoresearch-anycloud'..."
 echo "done."
 pause 1
 
-type_cmd "cd autoresearch-anywhere && uv sync"
+type_cmd "cd autoresearch-anycloud && uv sync"
 echo "Resolved 42 packages in 1.2s"
 echo "Installed 42 packages in 3.4s"
 pause 1
 
 # --- Init Mac ---
-type_cmd "autoresearch-anywhere init mac"
+type_cmd "autoresearch-anycloud init mac"
 cat <<'LOG'
 Detecting Mac environment...
   Apple Silicon detected (arm64)
@@ -75,7 +75,7 @@ LOG
 pause 2
 
 # --- Run ---
-type_cmd "autoresearch-anywhere run"
+type_cmd "autoresearch-anycloud run"
 cat <<'LOG'
 [12:01:00] Log file: logs/2026-03-25T120100.log
 
@@ -159,5 +159,5 @@ pause 2
 echo ""
 echo "# Done. Two experiments, zero infrastructure, one command."
 echo "# Works the same way on AWS, GCP, Azure, and OCI."
-echo "# https://github.com/abcdedf/autoresearch-anywhere"
+echo "# https://github.com/abcdedf/autoresearch-anycloud"
 pause 3

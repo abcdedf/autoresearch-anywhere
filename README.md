@@ -1,4 +1,4 @@
-# autoresearch-anywhere
+# autoresearch-anycloud
 
 Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your Mac or any cloud GPU — one command, no infrastructure knowledge needed.
 
@@ -12,7 +12,7 @@ Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your 
 
 ## Why This Tool?
 
-The autoresearch ecosystem has tools for [Mac/MPS](https://github.com/miolini/autoresearch-macos), [MLX](https://github.com/trevin-creator/autoresearch-mlx), and cloud orchestrators like [SkyPilot](https://github.com/skypilot-org/skypilot). But no single tool lets a researcher go from research intent to results across any platform without infrastructure knowledge. autoresearch-anywhere fills that gap:
+The autoresearch ecosystem has tools for [Mac/MPS](https://github.com/miolini/autoresearch-macos), [MLX](https://github.com/trevin-creator/autoresearch-mlx), and cloud orchestrators like [SkyPilot](https://github.com/skypilot-org/skypilot). But no single tool lets a researcher go from research intent to results across any platform without infrastructure knowledge. autoresearch-anycloud fills that gap:
 
 - **Minimal infrastructure setup** — provide credentials and a research config; the tool handles infrastructure setup, running of autoresearch, and infrastructure teardown
 - **No babysitting** — experiments have timeouts, a budget watchdog aborts if spend exceeds your limit, and try/finally guarantees the cloud VM is torn down whether the run succeeds, fails, or hangs.
@@ -33,11 +33,11 @@ export OPENAI_API_KEY=sk-...          # if using OpenAI
 3. Run:
 
 ```bash
-git clone https://github.com/abcdedf/autoresearch-anywhere.git
-cd autoresearch-anywhere
+git clone https://github.com/abcdedf/autoresearch-anycloud.git
+cd autoresearch-anycloud
 uv sync
-autoresearch-anywhere init mac
-autoresearch-anywhere run
+autoresearch-anycloud init mac
+autoresearch-anycloud run
 ```
 
 That's it. Training starts immediately on your Mac. No cloud account. No configuration.
@@ -137,11 +137,11 @@ When you're ready for faster GPUs, change `platform:` in `research.yaml` and pro
 4. Run:
 
 ```bash
-autoresearch-anywhere init aws
-autoresearch-anywhere run
+autoresearch-anycloud init aws
+autoresearch-anycloud run
 ```
 
-`init aws` reads credentials from `~/.aws/credentials/` by default and verifies them. To use a different location: `autoresearch-anywhere init aws --credentials /path/to/accessKeys.csv`
+`init aws` reads credentials from `~/.aws/credentials/` by default and verifies them. To use a different location: `autoresearch-anycloud init aws --credentials /path/to/accessKeys.csv`
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.13 for 1 experiment on an A10G GPU.
 
@@ -169,11 +169,11 @@ mv ~/Downloads/*.json ~/.config/gcloud/
 6. Run:
 
 ```bash
-autoresearch-anywhere init gcp
-autoresearch-anywhere run
+autoresearch-anycloud init gcp
+autoresearch-anycloud run
 ```
 
-`init gcp` reads credentials from `~/.config/gcloud/` by default and verifies them. To use a different location: `autoresearch-anywhere init gcp --credentials /path/to/key.json`
+`init gcp` reads credentials from `~/.config/gcloud/` by default and verifies them. To use a different location: `autoresearch-anycloud init gcp --credentials /path/to/key.json`
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.12 for 1 experiment on an L4 GPU (on-demand ~$0.72/hr).
 
@@ -217,11 +217,11 @@ This outputs `appId`, `password`, `tenant`. Map them into a JSON file.
 6. Run:
 
 ```bash
-autoresearch-anywhere init azure
-autoresearch-anywhere run
+autoresearch-anycloud init azure
+autoresearch-anycloud run
 ```
 
-`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-anywhere init azure --credentials /path/to/sp.json`
+`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-anycloud init azure --credentials /path/to/sp.json`
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.53 for 1 experiment on an A10 GPU (on-demand ~$3.20/hr).
 
@@ -263,11 +263,11 @@ compartment=ocid1.compartment.oc1..xxxxx
 Set `platform: oci` in `research.yaml`, then run:
 
 ```bash
-autoresearch-anywhere init oci
-autoresearch-anywhere run
+autoresearch-anycloud init oci
+autoresearch-anycloud run
 ```
 
-`init oci` reads credentials from `~/.oci/config` by default and verifies them. To use a different config file: `autoresearch-anywhere init oci --credentials /path/to/oci/config`. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
+`init oci` reads credentials from `~/.oci/config` by default and verifies them. To use a different config file: `autoresearch-anycloud init oci --credentials /path/to/oci/config`. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
 
 Estimated cloud cost: $0.08 for 1 experiment on an A10 GPU (on-demand $0.50/hr).
 
@@ -350,7 +350,7 @@ You need cloud credentials set up (AWS keys, GCP service account, etc.). The too
 
 We aim to support AWS, GCP, Azure, and Oracle OCI. Want to add another cloud provider (Lambda Labs, CoreWeave, Paperspace, etc.)? Contributions are welcome:
 
-- **Add a provider**: create a single Python file under `autoresearch_aw/providers/` that implements three functions:
+- **Add a provider**: create a single Python file under `autoresearch_ac/providers/` that implements three functions:
 
   ```python
   def provision(config: dict, log=None) -> dict:
@@ -370,7 +370,7 @@ We aim to support AWS, GCP, Azure, and Oracle OCI. Want to add another cloud pro
 
   Then add the provider to the `elif` chain in `orchestrator.py` and `cli.py`. See `aws.py` or `gcp.py` for working examples.
 
-- **Request a provider**: [open an issue](https://github.com/abcdedf/autoresearch-anywhere/issues) describing the platform and we'll prioritize it.
+- **Request a provider**: [open an issue](https://github.com/abcdedf/autoresearch-anycloud/issues) describing the platform and we'll prioritize it.
 
 ## Acknowledgments
 

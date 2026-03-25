@@ -9,8 +9,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from autoresearch_aw.config import load_config, load_research
-from autoresearch_aw.log import Logger
+from autoresearch_ac.config import load_config, load_research
+from autoresearch_ac.log import Logger
 
 
 def run_experiment(research_path: str = "research.yaml", verbose: bool = False):
@@ -19,7 +19,7 @@ def run_experiment(research_path: str = "research.yaml", verbose: bool = False):
     research = load_research(Path(research_path))
 
     if not config:
-        print("Error: No config found. Run 'autoresearch-anywhere init <platform>' first.")
+        print("Error: No config found. Run 'autoresearch-anycloud init <platform>' first.")
         sys.exit(1)
 
     if not research:
@@ -62,7 +62,7 @@ def _run_mac(config, research, max_experiments, verbose, log: Logger):
     results_dir = project_root / "results" / timestamp
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    from autoresearch_aw.cost import CostTracker, estimate_run_cost
+    from autoresearch_ac.cost import CostTracker, estimate_run_cost
 
     cost = estimate_run_cost("mac", "mac", max_experiments)
     budget = research.get("budget", {}).get("max_cost_usd", 5.0)
@@ -78,6 +78,16 @@ def _run_mac(config, research, max_experiments, verbose, log: Logger):
     # Copy platform-adapted scripts to workspace
     shutil.copy2(platforms_dir / "train.py", workspace / "train.py")
     shutil.copy2(platforms_dir / "prepare.py", workspace / "prepare.py")
+
+    # Patch TIME_BUDGET if configured
+    time_budget = research.get("research", {}).get("time_budget")
+    if time_budget:
+        prepare_py = workspace / "prepare.py"
+        text = prepare_py.read_text()
+        import re as _re
+        text = _re.sub(r'^TIME_BUDGET\s*=\s*\d+', f'TIME_BUDGET = {time_budget}', text, flags=_re.MULTILINE)
+        prepare_py.write_text(text)
+        log.log(f"[setup] TIME_BUDGET set to {time_budget}s")
 
     # Create a minimal pyproject.toml for uv run in workspace
     workspace_pyproject = workspace / "pyproject.toml"
@@ -261,13 +271,13 @@ def _get_experiment_timeout(project_root: Path, platform: str) -> int:
 def _load_provider(platform: str):
     """Import and return the provider module for a given platform."""
     if platform == "aws":
-        from autoresearch_aw.providers import aws as provider
+        from autoresearch_ac.providers import aws as provider
     elif platform == "gcp":
-        from autoresearch_aw.providers import gcp as provider
+        from autoresearch_ac.providers import gcp as provider
     elif platform == "azure":
-        from autoresearch_aw.providers import azure as provider
+        from autoresearch_ac.providers import azure as provider
     elif platform == "oci":
-        from autoresearch_aw.providers import oci as provider
+        from autoresearch_ac.providers import oci as provider
     else:
         raise ValueError(f"Unknown cloud platform: {platform}")
     return provider
@@ -279,7 +289,7 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
     All cloud providers share the same flow:
     provision → SSH → upload scripts → prepare data → train → collect → teardown
     """
-    from autoresearch_aw.providers.ssh import RemoteRunner
+    from autoresearch_ac.providers.ssh import RemoteRunner
 
     provider = _load_provider(platform)
     project_root = Path(__file__).parent.parent
@@ -288,7 +298,7 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
     # SSH user varies by provider
     ssh_user = {"aws": "ubuntu", "gcp": "ubuntu", "azure": "azureuser", "oci": "ubuntu"}.get(platform, "ubuntu")
 
-    from autoresearch_aw.cost import CostTracker, estimate_run_cost
+    from autoresearch_ac.cost import CostTracker, estimate_run_cost
 
     # Cost estimate upfront
     instance_type = config.get("platforms", {}).get(platform, {}).get("instance_type", "unknown")
@@ -356,6 +366,12 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
                 log.log(f"[setup] Tuning train.py for {gpu_tuning['gpu_name']}...")
                 for old, new in gpu_tuning["patches"]:
                     ssh.run(f"sed -i 's/{old}/{new}/' {remote_dir}/train.py")
+
+            # Patch TIME_BUDGET if configured
+            time_budget = research.get("research", {}).get("time_budget")
+            if time_budget:
+                ssh.run(f"sed -i 's/^TIME_BUDGET\\s*=\\s*[0-9]*/TIME_BUDGET = {time_budget}/' {remote_dir}/prepare.py")
+                log.log(f"[setup] TIME_BUDGET set to {time_budget}s")
 
             # Build env prefix for forwarding tokens to remote commands
             # (passed inline, never written to disk — see CLAUDE.md security policy)

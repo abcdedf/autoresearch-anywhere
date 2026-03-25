@@ -31,4 +31,4 @@ __pycache__/
 .idea/
 
 # Init config (contains user credentials/preferences)
-.autoresearch-anywhere/
+.autoresearch-anycloud/

@@ -17,8 +17,8 @@ AMI_FILTER = "Deep Learning OSS Nvidia Driver AMI GPU PyTorch * (Ubuntu 22.04) *
 DEFAULT_INSTANCE_TYPE = "g5.xlarge"  # A10G 24GB VRAM
 DEFAULT_REGION = "us-east-1"
 DEFAULT_SPOT_MAX_PRICE = "0.50"  # ~50% of on-demand ($1.006/hr)
-KEY_PAIR_NAME = "autoresearch-anywhere"
-KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
+KEY_PAIR_NAME = "autoresearch-anycloud"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anycloud")
 
 
 def _get_session(config: dict) -> boto3.Session:
@@ -91,7 +91,7 @@ def provision(config: dict, log=None) -> dict:
         }],
         TagSpecifications=[{
             "ResourceType": "instance",
-            "Tags": [{"Key": "Name", "Value": "autoresearch-anywhere"}],
+            "Tags": [{"Key": "Name", "Value": "autoresearch-anycloud"}],
         }],
     )
 
@@ -167,6 +167,88 @@ def teardown(instance_info: dict, log=None):
                 log.log(f"[aws] Security group {sg_id} will be cleaned up on next run.")
 
     # Note: we keep the key pair for future runs (no need to recreate each time)
+
+
+def preflight_check(config: dict, log=None) -> list[dict]:
+    """Validate credentials, AMI, instance type, and launch permissions. No resources created."""
+    results = []
+    aws_config = config.get("platforms", {}).get("aws", {})
+    region = aws_config.get("region", DEFAULT_REGION)
+    instance_type = aws_config.get("instance_type", DEFAULT_INSTANCE_TYPE)
+
+    # 1. Credentials
+    try:
+        session = _get_session(config)
+        sts = session.client("sts")
+        identity = sts.get_caller_identity()
+        account = identity["Account"]
+        results.append({"check": "Credentials", "status": "pass",
+                        "detail": f"account {account}"})
+    except Exception as e:
+        results.append({"check": "Credentials", "status": "fail",
+                        "detail": str(e)})
+        return results  # can't continue without credentials
+
+    ec2 = session.client("ec2")
+
+    # 2. Instance type available in region
+    try:
+        resp = ec2.describe_instance_type_offerings(
+            LocationType="region",
+            Filters=[{"Name": "instance-type", "Values": [instance_type]}],
+        )
+        if resp["InstanceTypeOfferings"]:
+            results.append({"check": "Instance type", "status": "pass",
+                            "detail": f"{instance_type} available in {region}"})
+        else:
+            results.append({"check": "Instance type", "status": "fail",
+                            "detail": f"{instance_type} not available in {region}"})
+    except Exception as e:
+        results.append({"check": "Instance type", "status": "fail",
+                        "detail": str(e)})
+
+    # 3. AMI exists
+    try:
+        ami_id = _find_ami(ec2)
+        results.append({"check": "AMI", "status": "pass",
+                        "detail": f"{ami_id}"})
+    except Exception as e:
+        results.append({"check": "AMI", "status": "fail",
+                        "detail": str(e)})
+
+    # 4. DryRun launch — full validation of permissions, limits, config
+    #    Note: omit KeyName since the key pair is created during provision
+    try:
+        sg_id = _ensure_security_group(ec2)
+        launch_kwargs = dict(
+            ImageId=ami_id,
+            InstanceType=instance_type,
+            SecurityGroupIds=[sg_id],
+            MinCount=1,
+            MaxCount=1,
+            BlockDeviceMappings=[{
+                "DeviceName": "/dev/sda1",
+                "Ebs": {"VolumeSize": 150, "VolumeType": "gp3", "Encrypted": True},
+            }],
+            TagSpecifications=[{
+                "ResourceType": "instance",
+                "Tags": [{"Key": "Name", "Value": "autoresearch-anycloud"}],
+            }],
+            DryRun=True,
+        )
+        ec2.run_instances(**launch_kwargs)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "DryRunOperation":
+            results.append({"check": "Launch (DryRun)", "status": "pass",
+                            "detail": "permissions and limits OK"})
+        else:
+            results.append({"check": "Launch (DryRun)", "status": "fail",
+                            "detail": e.response["Error"]["Message"]})
+    except Exception as e:
+        results.append({"check": "Launch (DryRun)", "status": "warn",
+                        "detail": f"Could not run DryRun check: {e}"})
+
+    return results
 
 
 def estimate_cost(config: dict) -> dict:
@@ -252,11 +334,11 @@ def _find_ami(ec2, log=None) -> str:
 
 
 def _cleanup_orphaned_instances(ec2, log=None):
-    """Terminate any running autoresearch-anywhere instances from previous failed runs."""
+    """Terminate any running autoresearch-anycloud instances from previous failed runs."""
     try:
         response = ec2.describe_instances(
             Filters=[
-                {"Name": "tag:Name", "Values": ["autoresearch-anywhere"]},
+                {"Name": "tag:Name", "Values": ["autoresearch-anycloud"]},
                 {"Name": "instance-state-name", "Values": ["running", "pending"]},
             ]
         )
@@ -272,7 +354,7 @@ def _cleanup_orphaned_instances(ec2, log=None):
 
 def _ensure_security_group(ec2, log=None) -> str:
     """Create or reuse a security group allowing SSH from anywhere."""
-    sg_name = "autoresearch-anywhere-ssh"
+    sg_name = "autoresearch-anycloud-ssh"
 
     try:
         response = ec2.describe_security_groups(
@@ -288,7 +370,7 @@ def _ensure_security_group(ec2, log=None) -> str:
 
     response = ec2.create_security_group(
         GroupName=sg_name,
-        Description="SSH access for autoresearch-anywhere",
+        Description="SSH access for autoresearch-anycloud",
     )
     sg_id = response["GroupId"]
 

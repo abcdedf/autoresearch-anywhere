@@ -1,7 +1,7 @@
 [project]
-name = "autoresearch-anywhere"
+name = "autoresearch-anycloud"
 version = "0.1.0"
-description = "Run autoresearch from anywhere — Mac, GCP, AWS, or Azure"
+description = "Run autoresearch on any cloud GPU — Mac, AWS, GCP, Azure, OCI"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.0",
@@ -23,10 +23,10 @@ dependencies = [
 ]
 
 [project.scripts]
-autoresearch-anywhere = "autoresearch_aw.cli:cli"
+autoresearch-anycloud = "autoresearch_ac.cli:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["autoresearch_aw"]
+packages = ["autoresearch_ac"]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,5 +1,6 @@
-"""OCI provider — provision and teardown GPU preemptible instances via the oci Python SDK."""
+"""OCI provider — provision and teardown GPU instances via the oci Python SDK."""
 
+import os
 import time
 
 import oci
@@ -9,11 +10,11 @@ from oci.exceptions import ServiceError
 DEFAULT_SHAPE = "VM.GPU.A10.1"          # NVIDIA A10 24GB VRAM
 DEFAULT_REGION = "us-ashburn-1"
 DEFAULT_HOURLY_RATE = 0.50              # estimated $/hr for GPU shapes
-DEFAULT_IMAGE_PATTERN = "Canonical-Ubuntu-22.04-aarch64-GPU"  # GPU-enabled Ubuntu
 DEFAULT_BOOT_VOLUME_GB = 150
 VCN_CIDR = "10.0.0.0/16"
 SUBNET_CIDR = "10.0.0.0/24"
 DISPLAY_PREFIX = "autoresearch-anywhere"
+KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
 
 
 # ---------------------------------------------------------------------------
@@ -21,24 +22,18 @@ DISPLAY_PREFIX = "autoresearch-anywhere"
 # ---------------------------------------------------------------------------
 
 def provision(config: dict, log=None) -> dict:
-    """Launch a preemptible GPU instance on OCI. Returns instance info dict."""
+    """Launch a GPU instance on OCI. Returns instance info dict."""
     oci_config = config.get("platforms", {}).get("oci", {})
     region = oci_config.get("region", DEFAULT_REGION)
     shape = oci_config.get("shape", DEFAULT_SHAPE)
     compartment_id = oci_config.get("compartment_id")
-    ssh_public_key_path = oci_config.get("ssh_public_key_path")
-    key_path = oci_config.get("key_path")  # local path to SSH private key
 
     if not compartment_id:
         raise ValueError("OCI config requires 'compartment_id'. "
                          "Run 'autoresearch-anywhere init oci' to configure.")
-    if not ssh_public_key_path or not key_path:
-        raise ValueError("OCI config requires 'ssh_public_key_path' and 'key_path' for SSH access. "
-                         "Run 'autoresearch-anywhere init oci' to configure.")
 
-    # Read the SSH public key
-    with open(ssh_public_key_path, "r") as f:
-        ssh_public_key = f.read().strip()
+    # Generate SSH key pair (like GCP provider)
+    key_path, ssh_public_key = _ensure_ssh_key(log)
 
     # Authenticate using the default config file (~/.oci/config)
     sdk_config = oci.config.from_file()
@@ -47,79 +42,85 @@ def provision(config: dict, log=None) -> dict:
     compute = oci.core.ComputeClient(sdk_config)
     network = oci.core.VirtualNetworkClient(sdk_config)
 
-    # Step 1: Create VCN
-    if log:
-        log.log("[oci] Creating VCN...")
-    vcn_id = _create_vcn(network, compartment_id, log)
+    # Track created resources for cleanup on failure
+    created = {}
 
-    # Step 2: Create internet gateway and route table
-    if log:
-        log.log("[oci] Creating internet gateway and route table...")
-    ig_id = _create_internet_gateway(network, compartment_id, vcn_id, log)
-    rt_id = _create_route_table(network, compartment_id, vcn_id, ig_id, log)
+    try:
+        # Step 1: Create VCN
+        if log:
+            log.log("[oci] Creating VCN...")
+        created["vcn_id"] = _create_vcn(network, compartment_id, log)
 
-    # Step 3: Create security list (SSH)
-    if log:
-        log.log("[oci] Creating security list (SSH port 22)...")
-    sl_id = _create_security_list(network, compartment_id, vcn_id, log)
+        # Step 2: Create internet gateway and route table
+        if log:
+            log.log("[oci] Creating internet gateway and route table...")
+        created["internet_gateway_id"] = _create_internet_gateway(network, compartment_id, created["vcn_id"], log)
+        created["route_table_id"] = _create_route_table(network, compartment_id, created["vcn_id"], created["internet_gateway_id"], log)
 
-    # Step 4: Create subnet
-    if log:
-        log.log("[oci] Creating subnet...")
-    subnet_id = _create_subnet(network, compartment_id, vcn_id, rt_id, sl_id, log)
+        # Step 3: Create security list (SSH)
+        if log:
+            log.log("[oci] Creating security list (SSH port 22)...")
+        created["security_list_id"] = _create_security_list(network, compartment_id, created["vcn_id"], log)
 
-    # Step 5: Find a GPU image
-    if log:
-        log.log(f"[oci] Finding GPU image for shape {shape}...")
-    image_id = _find_image(compute, compartment_id, shape, log)
+        # Step 4: Create subnet
+        if log:
+            log.log("[oci] Creating subnet...")
+        created["subnet_id"] = _create_subnet(network, compartment_id, created["vcn_id"], created["route_table_id"], created["security_list_id"], log)
 
-    # Step 6: Launch preemptible instance
-    if log:
-        log.log(f"[oci] Launching preemptible {shape} instance...")
+        # Step 5: Find a GPU image
+        if log:
+            log.log(f"[oci] Finding GPU image for shape {shape}...")
+        image_id = _find_image(compute, compartment_id, shape, log)
 
-    launch_details = oci.core.models.LaunchInstanceDetails(
-        compartment_id=compartment_id,
-        availability_domain=_get_availability_domain(sdk_config, compartment_id),
-        display_name=f"{DISPLAY_PREFIX}-gpu",
-        shape=shape,
-        source_details=oci.core.models.InstanceSourceViaImageDetails(
-            source_type="image",
-            image_id=image_id,
-            boot_volume_size_in_gbs=DEFAULT_BOOT_VOLUME_GB,
-        ),
-        create_vnic_details=oci.core.models.CreateVnicDetails(
-            subnet_id=subnet_id,
-            assign_public_ip=True,
-        ),
-        metadata={
-            "ssh_authorized_keys": ssh_public_key,
-        },
-        preemptible_instance_config=oci.core.models.PreemptibleInstanceConfigDetails(
-            preemption_action=oci.core.models.TerminatePreemptionAction(
-                type="TERMINATE",
-                preserve_boot_volume=False,
+        # Step 6: Launch instance
+        if log:
+            log.log(f"[oci] Launching {shape} instance...")
+
+        launch_details = oci.core.models.LaunchInstanceDetails(
+            compartment_id=compartment_id,
+            availability_domain=_get_availability_domain(sdk_config, compartment_id),
+            display_name=f"{DISPLAY_PREFIX}-gpu",
+            shape=shape,
+            source_details=oci.core.models.InstanceSourceViaImageDetails(
+                source_type="image",
+                image_id=image_id,
+                boot_volume_size_in_gbs=DEFAULT_BOOT_VOLUME_GB,
             ),
-        ),
-    )
+            create_vnic_details=oci.core.models.CreateVnicDetails(
+                subnet_id=created["subnet_id"],
+                assign_public_ip=True,
+            ),
+            metadata={
+                "ssh_authorized_keys": ssh_public_key,
+            },
+        )
 
-    launch_response = compute.launch_instance(launch_details)
-    instance_id = launch_response.data.id
+        launch_response = compute.launch_instance(launch_details)
+        instance_id = launch_response.data.id
+        created["instance_id"] = instance_id
 
-    if log:
-        log.log(f"[oci] Instance {instance_id} launched. Waiting for RUNNING state...")
+        if log:
+            log.log(f"[oci] Instance {instance_id} launched. Waiting for RUNNING state...")
 
-    # Step 7: Wait for instance to reach RUNNING
-    instance = _wait_for_running(compute, instance_id, log)
+        # Step 7: Wait for instance to reach RUNNING
+        instance = _wait_for_running(compute, instance_id, log)
 
-    # Step 8: Get public IP
-    public_ip = _get_public_ip(compute, network, compartment_id, instance_id, log)
-    if log:
-        log.log(f"[oci] Instance running at {public_ip}")
+        # Step 8: Get public IP
+        public_ip = _get_public_ip(compute, network, compartment_id, instance_id, log)
+        if log:
+            log.log(f"[oci] Instance running at {public_ip}")
 
-    # Step 9: Wait for SSH
-    if log:
-        log.log("[oci] Waiting for SSH to become available...")
-    _wait_for_ssh(public_ip, key_path, log)
+        # Step 9: Wait for SSH
+        if log:
+            log.log("[oci] Waiting for SSH to become available...")
+        _wait_for_ssh(public_ip, key_path, log)
+
+    except Exception:
+        # Clean up any resources created before the failure
+        if log:
+            log.log("[oci] Provision failed. Cleaning up created resources...")
+        _cleanup_created_resources(compute, network, created, log)
+        raise
 
     return {
         "instance_id": instance_id,
@@ -127,11 +128,11 @@ def provision(config: dict, log=None) -> dict:
         "public_ip": public_ip,
         "region": region,
         "key_path": key_path,
-        "vcn_id": vcn_id,
-        "subnet_id": subnet_id,
-        "security_list_id": sl_id,
-        "internet_gateway_id": ig_id,
-        "route_table_id": rt_id,
+        "vcn_id": created["vcn_id"],
+        "subnet_id": created["subnet_id"],
+        "security_list_id": created["security_list_id"],
+        "internet_gateway_id": created["internet_gateway_id"],
+        "route_table_id": created["route_table_id"],
     }
 
 
@@ -208,6 +209,61 @@ def estimate_cost(config: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _cleanup_created_resources(compute, network, created: dict, log=None):
+    """Clean up any OCI resources tracked in the created dict. Called on provision failure."""
+    # Terminate instance first (if it was created)
+    instance_id = created.get("instance_id")
+    if instance_id:
+        try:
+            compute.terminate_instance(instance_id, preserve_boot_volume=False)
+            if log:
+                log.log(f"[oci] Terminated instance {instance_id}")
+            _wait_for_terminated(compute, instance_id, log)
+        except Exception:
+            pass
+
+    # Delete in reverse creation order: subnet → route table → security list → gateway → VCN
+    for key, name, delete_fn in [
+        ("subnet_id", "subnet", network.delete_subnet),
+        ("route_table_id", "route table", network.delete_route_table),
+        ("security_list_id", "security list", network.delete_security_list),
+        ("internet_gateway_id", "internet gateway", network.delete_internet_gateway),
+        ("vcn_id", "VCN", network.delete_vcn),
+    ]:
+        resource_id = created.get(key)
+        if resource_id:
+            _safe_delete(delete_fn, resource_id, name, log)
+
+
+def _ensure_ssh_key(log=None) -> tuple[str, str]:
+    """Generate an SSH key pair if it doesn't exist.
+
+    Returns (private_key_path, public_key_content).
+    """
+    os.makedirs(KEY_DIR, exist_ok=True)
+    key_path = os.path.join(KEY_DIR, "autoresearch-anywhere-oci")
+
+    if os.path.exists(key_path):
+        if log:
+            log.log(f"[oci] Using existing SSH key '{key_path}'")
+    else:
+        if log:
+            log.log("[oci] Creating SSH key pair...")
+        import subprocess
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", "autoresearch-anywhere"],
+            check=True, capture_output=True,
+        )
+        os.chmod(key_path, 0o400)
+        if log:
+            log.log(f"[oci] Key saved to {key_path}")
+
+    with open(key_path + ".pub") as f:
+        pub_key = f.read().strip()
+
+    return key_path, pub_key
+
 
 def _get_availability_domain(sdk_config: dict, compartment_id: str) -> str:
     """Return the first availability domain in the tenancy."""

@@ -7,7 +7,7 @@ Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your 
 | Mac | Apple Silicon MPS | Free | Verified |
 | AWS | A10G 24GB | $1.01/hr on-demand | Verified |
 | GCP | L4 24GB | ~$0.72/hr on-demand | Verified |
-| Azure | A10 24GB | ~$1.80/hr on-demand | Coming soon |
+| Azure | A10 24GB | ~$3.20/hr on-demand | Coming soon |
 | Oracle OCI | A10 24GB | $0.50/hr | Coming soon |
 
 ## Why This Tool?
@@ -222,16 +222,44 @@ autoresearch-anywhere run
 
 `init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-anywhere init azure --credentials /path/to/sp.json`
 
-A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.30 for 1 experiment on an A10 GPU (on-demand ~$1.80/hr).
+A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.53 for 1 experiment on an A10 GPU (on-demand ~$3.20/hr).
 
-### Oracle OCI
+### Oracle OCI (no CLI install needed)
 
-1. Install OCI CLI: `brew install oci-cli`
-2. Generate an API signing key and config: `oci setup config` (follow prompts — it creates `~/.oci/config` with your tenancy, user, region, and PEM key)
-3. Find your compartment OCID: OCI Console → Identity & Security → Compartments → copy the OCID
-4. Add the compartment to your OCI config: add `compartment=ocid1.compartment.oc1..xxxxx` to the `[DEFAULT]` section of `~/.oci/config`
-5. Set `platform: oci` in `research.yaml`
-6. Run:
+You'll create a config file with 6 values. Gather them first, then paste into the template at the end.
+
+| Field | Where to find it |
+|-------|-----------------|
+| `user` | Profile icon (top-right) → **My profile** → OCID under your username |
+| `fingerprint` | Generated automatically in the API key step below |
+| `tenancy` | Profile icon → **Tenancy: \<name\>** → OCID on that page |
+| `region` | From your Console URL: `cloud.oracle.com/?region=us-phoenix-1` → copy the value after `region=` |
+| `key_file` | The private key you download in the API key step below |
+| `compartment` | [Identity & Security → Compartments](https://cloud.oracle.com/identity/compartments) → OCID of the compartment to use |
+
+**Generate an API signing key**: My profile → **API keys** (under Resources in left sidebar) → **Add API key** → **Generate API key pair** → **Download private key** (skip the public key — the `*.public.pem` file is not needed) → click **Add**. The fingerprint is shown on the confirmation page.
+
+**Save the key and config**:
+
+```bash
+mkdir -p ~/.oci
+mv ~/Downloads/<your-downloaded-key>.pem ~/.oci/oci_api_key.pem
+chmod 600 ~/.oci/oci_api_key.pem
+```
+
+Create `~/.oci/config` with your values:
+
+```ini
+[DEFAULT]
+user=ocid1.user.oc1..xxxxx
+fingerprint=aa:bb:cc:...
+tenancy=ocid1.tenancy.oc1..xxxxx
+region=us-ashburn-1
+key_file=~/.oci/oci_api_key.pem
+compartment=ocid1.compartment.oc1..xxxxx
+```
+
+Set `platform: oci` in `research.yaml`, then run:
 
 ```bash
 autoresearch-anywhere init oci
@@ -241,6 +269,15 @@ autoresearch-anywhere run
 `init oci` reads credentials from `~/.oci/config` by default and verifies them. To use a different config file: `autoresearch-anywhere init oci --credentials /path/to/oci/config`. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
 
 Estimated cloud cost: $0.08 for 1 experiment on an A10 GPU (on-demand $0.50/hr).
+
+**Troubleshooting**:
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `NotAuthorizedOrNotFound` on launch | Missing IAM policy, GPU shape not available in your region, or GPU quota is 0 | 1. Check [Limits](https://cloud.oracle.com/limits) → search `VM.GPU.A10` → verify limit > 0 in your region. 2. Ensure your user/group has a policy like `Allow group <group> to manage compute-instances in compartment <compartment>`. 3. Try a different region — GPU shapes are not available in all regions. |
+| `fingerprint malformed` | Fingerprint in `~/.oci/config` has wrong format | Copy the exact fingerprint from My profile → API keys. Format: `aa:bb:cc:dd:...` (colon-separated hex). |
+| `key_file` permissions error | Private key is too open | Run `chmod 600 ~/.oci/oci_api_key.pem` |
+| Preemptible not supported | GPU shapes do not support preemptible on OCI | This tool uses on-demand instances automatically. If you see this error, update to the latest version. |
 
 ### Switching Platforms
 

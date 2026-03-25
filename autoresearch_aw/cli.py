@@ -15,6 +15,7 @@ from autoresearch_aw.config import (
     load_research,
     save_config,
 )
+from autoresearch_aw.log import Logger
 
 
 @click.group()
@@ -45,22 +46,23 @@ def init(platform_name: str, credentials: str):
     if "platforms" not in config:
         config["platforms"] = {}
 
-    if platform_name == "mac":
-        _init_mac(config)
-    elif platform_name == "gcp":
-        _init_gcp(config, credentials)
-    elif platform_name == "aws":
-        _init_aws(config, credentials)
-    elif platform_name == "azure":
-        _init_azure(config, credentials)
-    elif platform_name == "oci":
-        _init_oci(config, credentials)
+    with Logger(config["log_dir"]) as log:
+        if platform_name == "mac":
+            _init_mac(config, log)
+        elif platform_name == "gcp":
+            _init_gcp(config, credentials, log)
+        elif platform_name == "aws":
+            _init_aws(config, credentials, log)
+        elif platform_name == "azure":
+            _init_azure(config, credentials, log)
+        elif platform_name == "oci":
+            _init_oci(config, credentials, log)
 
     save_config(config)
     click.echo(f"\nConfig saved to {DEFAULT_CONFIG_PATH}")
 
 
-def _init_mac(config: dict):
+def _init_mac(config: dict, log=None):
     """Detect Apple Silicon and verify PyTorch MPS support."""
     click.echo("Detecting Mac environment...")
 
@@ -102,7 +104,7 @@ def _init_mac(config: dict):
     click.echo("\nMac platform configured.")
 
 
-def _init_gcp(config: dict, credentials: str = None):
+def _init_gcp(config: dict, credentials: str = None, log=None):
     """Configure GCP. Reads service account JSON key from --credentials path or ~/.config/gcloud/."""
     click.echo("Configuring GCP...\n")
 
@@ -162,7 +164,7 @@ def _init_gcp(config: dict, credentials: str = None):
     click.echo("\nGCP configured.")
 
 
-def _init_aws(config: dict, credentials: str = None):
+def _init_aws(config: dict, credentials: str = None, log=None):
     """Configure AWS. Reads credentials CSV from ~/.aws/credentials/ or --credentials path."""
     click.echo("Configuring AWS...\n")
 
@@ -221,7 +223,7 @@ def _init_aws(config: dict, credentials: str = None):
     click.echo("\nAWS configured.")
 
 
-def _init_azure(config: dict, credentials: str = None):
+def _init_azure(config: dict, credentials: str = None, log=None):
     """Configure Azure. Reads service principal JSON from --credentials, env vars, or ~/.azure/."""
     click.echo("Configuring Azure...\n")
 
@@ -324,15 +326,14 @@ def _init_azure(config: dict, credentials: str = None):
     click.echo("\nAzure configured.")
 
 
-def _init_oci(config: dict, credentials: str = None):
+def _init_oci(config: dict, credentials: str = None, log=None):
     """Configure OCI. Reads API key config from ~/.oci/config or --credentials path."""
-    click.echo("Configuring Oracle OCI...\n")
+    log.log("Configuring Oracle OCI...")
 
     try:
         import oci
     except ImportError:
-        click.echo("  Error: OCI SDK not installed.", err=True)
-        click.echo("  Install it with: uv pip install oci", err=True)
+        log.error("OCI SDK not installed. Install it with: uv pip install oci")
         sys.exit(1)
 
     # Find OCI config file
@@ -340,44 +341,53 @@ def _init_oci(config: dict, credentials: str = None):
     config_path = os.path.expanduser(credentials) if credentials else default_config_path
 
     if not os.path.exists(config_path):
-        click.echo(f"  Error: OCI config not found at {config_path}", err=True)
-        click.echo("", err=True)
-        click.echo("  Set up OCI API key authentication:", err=True)
-        click.echo("    1. Install OCI CLI: brew install oci-cli", err=True)
-        click.echo("    2. Run: oci setup config", err=True)
-        click.echo("       This creates ~/.oci/config with your tenancy, user, region, and key.", err=True)
-        click.echo("    3. Re-run: autoresearch-anywhere init oci", err=True)
-        click.echo("", err=True)
-        click.echo("  Or pass an alternate config: autoresearch-anywhere init oci --credentials /path/to/oci/config", err=True)
+        log.error(f"OCI config not found at {config_path}")
+        log.log("  Set up OCI API key authentication:")
+        log.log("    1. OCI Console -> My profile -> API keys -> Add API key -> Generate API key pair")
+        log.log("    2. Download the private key and save to ~/.oci/oci_api_key.pem")
+        log.log("    3. Create ~/.oci/config with user, fingerprint, tenancy, region, key_file, and compartment")
+        log.log("    4. Re-run: autoresearch-anywhere init oci")
+        log.log("  See README.md -> Oracle OCI for step-by-step instructions.")
         sys.exit(1)
+
+    # Check key file permissions
+    key_file_path = None
+    try:
+        oci_raw = oci.config.from_file(file_location=config_path)
+        key_file_path = oci_raw.get("key_file")
+    except Exception:
+        pass
+
+    if key_file_path and os.path.exists(os.path.expanduser(key_file_path)):
+        key_perms = oct(os.stat(os.path.expanduser(key_file_path)).st_mode)[-3:]
+        if key_perms != "600" and key_perms != "400":
+            log.log(f"  Warning: key file permissions are {key_perms}, should be 600.")
+            log.log(f"  Run: chmod 600 {key_file_path}")
 
     # Read and verify credentials
     try:
         oci_config = oci.config.from_file(file_location=config_path)
+        oci.config.validate_config(oci_config)
         identity_client = oci.identity.IdentityClient(oci_config)
         tenancy = identity_client.get_tenancy(oci_config["tenancy"]).data
-        click.echo(f"  Verified (tenancy: {tenancy.name})")
+        log.log(f"  Verified (tenancy: {tenancy.name})")
     except Exception as e:
-        click.echo(f"  Error: Could not authenticate with OCI config at {config_path}.", err=True)
-        click.echo(f"  {e}", err=True)
-        click.echo("", err=True)
-        click.echo("  Ensure your ~/.oci/config has valid user, tenancy, key_file, and fingerprint.", err=True)
-        click.echo("  Run 'oci setup config' to reconfigure.", err=True)
+        log.error(f"Could not authenticate with OCI config at {config_path}.")
+        log.log(f"  {e}")
+        log.log("  Ensure your ~/.oci/config has valid user, tenancy, key_file, and fingerprint.")
+        log.log("  See README.md -> Oracle OCI for step-by-step instructions.")
         sys.exit(1)
 
     # Get compartment ID: check config file custom field, then env var
     compartment_id = oci_config.get("compartment") or os.environ.get("OCI_COMPARTMENT_ID")
 
     if not compartment_id:
-        click.echo("", err=True)
-        click.echo("  Error: Compartment OCID not found.", err=True)
-        click.echo("", err=True)
-        click.echo("  OCI requires a compartment OCID to create resources. Provide it by either:", err=True)
-        click.echo("    1. Adding 'compartment=ocid1.compartment.oc1..xxxxx' to your ~/.oci/config [DEFAULT] section", err=True)
-        click.echo("    2. Setting the environment variable: export OCI_COMPARTMENT_ID=ocid1.compartment.oc1..xxxxx", err=True)
-        click.echo("", err=True)
-        click.echo("  To find your compartment OCID:", err=True)
-        click.echo("    OCI Console -> Identity & Security -> Compartments -> copy the OCID", err=True)
+        log.error("Compartment OCID not found.")
+        log.log("  OCI requires a compartment OCID to create resources. Provide it by either:")
+        log.log("    1. Adding 'compartment=ocid1.compartment.oc1..xxxxx' to your ~/.oci/config [DEFAULT] section")
+        log.log("    2. Setting the environment variable: export OCI_COMPARTMENT_ID=ocid1.compartment.oc1..xxxxx")
+        log.log("  To find your compartment OCID:")
+        log.log("    OCI Console -> Identity & Security -> Compartments -> copy the OCID")
         sys.exit(1)
 
     region = oci_config.get("region", "us-ashburn-1")

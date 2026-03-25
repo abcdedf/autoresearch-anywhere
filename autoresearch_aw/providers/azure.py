@@ -15,7 +15,7 @@ from azure.mgmt.resource import ResourceManagementClient
 
 DEFAULT_VM_SIZE = "Standard_NV36ads_A10_v5"  # A10 GPU 24GB, 36 vCPU, 440GB RAM (Ampere)
 DEFAULT_REGION = "eastus"
-DEFAULT_HOURLY_RATE = 1.80  # $/hr on-demand for Standard_NV36ads_A10_v5
+DEFAULT_HOURLY_RATE = 3.20  # $/hr on-demand for Standard_NV36ads_A10_v5
 RESOURCE_GROUP_NAME = "autoresearch-anywhere-rg"
 KEY_DIR = os.path.join(os.path.expanduser("~"), ".autoresearch-anywhere")
 

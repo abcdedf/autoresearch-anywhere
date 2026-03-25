@@ -23,3 +23,8 @@ platforms:
     instance_type: Standard_NV36ads_A10_v5
     spot_max_price: '0.50'
     credentials_json: /Users/abhayapat/.azure/service-principal.json
+  oci:
+    compartment_id: ocid1.tenancy.oc1..aaaaaaaangxdgwvaecbfclatnbys65sthydlse25yl2pm5zo7fgexeebjvpq
+    region: us-phoenix-1
+    instance_type: VM.GPU.A10.1
+    credentials_config: /Users/abhayapat/.oci/config

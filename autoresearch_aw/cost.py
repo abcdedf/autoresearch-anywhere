@@ -31,7 +31,7 @@ ESTIMATED_OUTPUT_TOKENS_PER_EXPERIMENT = 2000
 GPU_PRICING = {
     "g5.xlarge": 1.006,                # AWS A10G on-demand — https://instances.vantage.sh/aws/ec2/g5.xlarge
     "g2-standard-4": 0.72,             # GCP L4 on-demand — https://cloud.google.com/compute/vm-instance-pricing
-    "Standard_NV36ads_A10_v5": 1.80,   # Azure A10 on-demand — https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/
+    "Standard_NV36ads_A10_v5": 3.20,   # Azure A10 on-demand — https://instances.vantage.sh/azure/vm/nv36ads-v5
     "VM.GPU.A10.1": 0.50,              # OCI A10 — https://www.oracle.com/cloud/compute/pricing/
     "mac": 0.00,                        # Local, free
 }

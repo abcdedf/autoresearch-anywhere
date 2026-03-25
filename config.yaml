@@ -10,3 +10,16 @@ platforms:
     use_spot: false
     spot_max_price: '0.50'
     credentials_csv: /Users/abhayapat/.aws/credentials/accessKey.csv
+  gcp:
+    project: autoresearch-491200
+    region: asia-northeast1
+    zone: asia-northeast1-b
+    instance_type: g2-standard-4
+    gpu_type: nvidia-l4
+    credentials_json: /Users/abhayapat/.config/gcloud/autoresearch-491200-482b508309ba.json
+  azure:
+    subscription: a61ea4a7-b0d0-49b7-b818-a01927ff9405
+    region: eastus
+    instance_type: Standard_NV36ads_A10_v5
+    spot_max_price: '0.50'
+    credentials_json: /Users/abhayapat/.azure/service-principal.json

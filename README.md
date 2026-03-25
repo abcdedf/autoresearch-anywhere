@@ -6,8 +6,8 @@ Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your 
 |----------|-----|------|--------|
 | Mac | Apple Silicon MPS | Free | Verified |
 | AWS | A10G 24GB | $1.01/hr on-demand | Verified |
-| GCP | T4 16GB | $0.35/hr | Coming soon |
-| Azure | T4 16GB | $0.53/hr | Coming soon |
+| GCP | L4 24GB | ~$0.72/hr on-demand | Verified |
+| Azure | A10 24GB | ~$1.80/hr on-demand | Coming soon |
 | Oracle OCI | A10 24GB | $0.50/hr | Coming soon |
 
 ## Why This Tool?
@@ -117,7 +117,16 @@ When you're ready for faster GPUs, change `platform:` in `research.yaml` and pro
 
 > **GPU quota required**: All cloud providers limit GPU access by default (quota = 0). Your first run will likely fail with a quota error. Request GPU access **before** your first run — it's free to apply but approval can take hours to days for new accounts. See [GPU Quota](#gpu-quota) below for links.
 
-> **Note on GPU compatibility**: Upstream autoresearch hardcodes batch sizes for H100 80GB GPUs. Cloud GPUs (A10G 24GB, T4 16GB) have less VRAM and will OOM with those defaults. As a workaround, this tool patches batch sizes via `sed` before training. We've submitted a [PR to upstream](https://github.com/karpathy/autoresearch/pull/402) to make these values configurable via environment variables.
+> **Note on GPU compatibility**: Upstream autoresearch uses FlashAttention 3 and bfloat16, which require **Ampere architecture (compute capability 8.0) or newer**. This means T4 (Turing, CC 7.5) and V100 (Volta, CC 7.0) GPUs **will not work**. Compatible cloud GPUs include A10/A10G (Ampere), A100, and H100. Additionally, upstream hardcodes batch sizes for H100 80GB GPUs — this tool patches batch sizes via `sed` for smaller-VRAM GPUs. We've submitted a [PR to upstream](https://github.com/karpathy/autoresearch/pull/402) to make these values configurable via environment variables.
+>
+> | GPU | Architecture | Compute Capability | Compatible |
+> |-----|-------------|-------------------|------------|
+> | T4 | Turing | 7.5 | No — no FA3, no bfloat16 |
+> | V100 | Volta | 7.0 | No — no FA3, no bfloat16 |
+> | L4 | Ada Lovelace | 8.9 | Yes |
+> | A10/A10G | Ampere | 8.6 | Yes |
+> | A100 | Ampere | 8.0 | Yes |
+> | H100 | Hopper | 9.0 | Yes |
 
 ### AWS (no CLI install needed)
 
@@ -165,7 +174,7 @@ autoresearch-anywhere run
 
 `init gcp` reads credentials from `~/.config/gcloud/` by default and verifies them. To use a different location: `autoresearch-anywhere init gcp --credentials /path/to/key.json`
 
-A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.04 for 1 experiment on a T4 GPU (on-demand $0.35/hr).
+A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.12 for 1 experiment on an L4 GPU (on-demand ~$0.72/hr).
 
 ### Azure
 
@@ -213,7 +222,7 @@ autoresearch-anywhere run
 
 `init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-anywhere init azure --credentials /path/to/sp.json`
 
-A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.05 for 1 experiment on a T4 GPU (on-demand $0.53/hr).
+A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.30 for 1 experiment on an A10 GPU (on-demand ~$1.80/hr).
 
 ### Oracle OCI
 
@@ -272,8 +281,8 @@ Cloud providers set GPU quota to **0** by default. Your first cloud run will fai
 | Provider | Where to request |
 |----------|-----------------|
 | AWS | [Service Quotas](https://console.aws.amazon.com/servicequotas/) → EC2 → search "G and VT" |
-| GCP | [Quotas](https://console.cloud.google.com/iam-admin/quotas) → search "NVIDIA T4" |
-| Azure | [Quotas](https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas) → search "NCASv3_T4", request 4 cores |
+| GCP | [Quotas](https://console.cloud.google.com/iam-admin/quotas) → search "NVIDIA L4" |
+| Azure | [Quotas](https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas) → search "NVadsA10v5", request 36 cores |
 | OCI | [Limits](https://cloud.oracle.com/limits) → search your GPU shape |
 
 ## Security

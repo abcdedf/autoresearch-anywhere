@@ -14,12 +14,14 @@ from google.oauth2 import service_account
 # Deep Learning VM image — comes with CUDA + PyTorch preinstalled
 IMAGE_PROJECT = "deeplearning-platform-release"
 IMAGE_FAMILY = "pytorch-2-7-cu128-ubuntu-2204-nvidia-570"
-DEFAULT_INSTANCE_TYPE = "n1-standard-4"
-DEFAULT_GPU_TYPE = "nvidia-tesla-t4"
+DEFAULT_INSTANCE_TYPE = "g2-standard-4"
+DEFAULT_GPU_TYPE = "nvidia-l4"
 DEFAULT_GPU_COUNT = 1
-DEFAULT_REGION = "us-central1"
-DEFAULT_ZONE = "us-central1-a"
-DEFAULT_HOURLY_RATE = 0.35  # $/hr for n1-standard-4 + T4 on-demand
+DEFAULT_REGION = "asia-northeast1"
+DEFAULT_ZONE = "asia-northeast1-b"
+DEFAULT_HOURLY_RATE = 0.72  # $/hr for g2-standard-4 (L4) on-demand
+# Machine type families where the GPU is built in (no guest_accelerators needed)
+ACCELERATOR_INCLUSIVE_FAMILIES = ("g2", "a2", "a3")
 BOOT_DISK_SIZE_GB = 150
 FIREWALL_RULE_NAME = "autoresearch-anywhere-allow-ssh"
 INSTANCE_NAME = "autoresearch-anywhere"
@@ -257,9 +259,6 @@ def _create_instance(project, zone, instance_type, gpu_type, gpu_count,
     """Create a VM with GPU via the Compute Engine API."""
     instances_client = compute_v1.InstancesClient(credentials=credentials)
 
-    # Accelerator config — full resource path for the GPU type
-    accelerator_type = f"zones/{zone}/acceleratorTypes/{gpu_type}"
-
     # Scheduling: on-demand or spot
     if use_spot:
         scheduling = compute_v1.Scheduling(
@@ -298,12 +297,6 @@ def _create_instance(project, zone, instance_type, gpu_type, gpu_count,
                 ],
             )
         ],
-        guest_accelerators=[
-            compute_v1.AcceleratorConfig(
-                accelerator_type=accelerator_type,
-                accelerator_count=gpu_count,
-            )
-        ],
         scheduling=scheduling,
         tags=compute_v1.Tags(items=[NETWORK_TAG]),
         metadata=compute_v1.Metadata(
@@ -319,6 +312,17 @@ def _create_instance(project, zone, instance_type, gpu_type, gpu_count,
             ]
         ),
     )
+
+    # Attach GPU explicitly only for machine types that don't have it built in
+    family = instance_type.split("-")[0]
+    if family not in ACCELERATOR_INCLUSIVE_FAMILIES:
+        accelerator_type = f"zones/{zone}/acceleratorTypes/{gpu_type}"
+        instance_resource.guest_accelerators = [
+            compute_v1.AcceleratorConfig(
+                accelerator_type=accelerator_type,
+                accelerator_count=gpu_count,
+            )
+        ]
 
     operation = instances_client.insert(
         project=project,

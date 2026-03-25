@@ -29,11 +29,11 @@ ESTIMATED_OUTPUT_TOKENS_PER_EXPERIMENT = 2000
 # GPU on-demand pricing per hour (from public pricing pages, March 2026)
 # Source: instances.vantage.sh, cloud provider pricing calculators
 GPU_PRICING = {
-    "g5.xlarge": 1.006,          # AWS A10G on-demand — https://instances.vantage.sh/aws/ec2/g5.xlarge
-    "n1-standard-4+t4": 0.35,    # GCP T4 — https://cloud.google.com/compute/vm-instance-pricing
-    "Standard_NC4as_T4_v3": 0.35, # Azure T4 — https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/
-    "VM.GPU.A10.1": 0.50,        # OCI A10 — https://www.oracle.com/cloud/compute/pricing/
-    "mac": 0.00,                  # Local, free
+    "g5.xlarge": 1.006,                # AWS A10G on-demand — https://instances.vantage.sh/aws/ec2/g5.xlarge
+    "g2-standard-4": 0.72,             # GCP L4 on-demand — https://cloud.google.com/compute/vm-instance-pricing
+    "Standard_NV36ads_A10_v5": 1.80,   # Azure A10 on-demand — https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/
+    "VM.GPU.A10.1": 0.50,              # OCI A10 — https://www.oracle.com/cloud/compute/pricing/
+    "mac": 0.00,                        # Local, free
 }
 
 

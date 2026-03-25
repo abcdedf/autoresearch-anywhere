@@ -37,9 +37,9 @@ The researcher thinks about the research problem. This tool thinks about the inf
 ## Current Status
 
 - Mac: verified, working end-to-end
-- AWS: code complete, not yet verified
-- GCP: code complete, not yet verified
-- Azure: code complete, not yet verified
+- AWS: verified, working end-to-end
+- GCP: verified, working end-to-end (L4 GPU, asia-northeast1-b)
+- Azure: blocked on quota (A10, need 36 regional cores)
 - OCI: code complete, not yet verified
 
 ## Enforcement Rules

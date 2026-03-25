@@ -170,18 +170,18 @@ GPU_TUNING = {
             ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
         ],
     },
-    "n1-standard-4": {  # GCP T4 16GB
-        "gpu_name": "T4 16GB",
+    "g2-standard-4": {  # GCP L4 24GB
+        "gpu_name": "L4 24GB",
         "patches": [
-            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 16"),
-            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**16"),
+            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
+            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
         ],
     },
-    "Standard_NC4as_T4_v3": {  # Azure T4 16GB
-        "gpu_name": "T4 16GB",
+    "Standard_NV36ads_A10_v5": {  # Azure A10 24GB
+        "gpu_name": "A10 24GB",
         "patches": [
-            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 16"),
-            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**16"),
+            ("DEVICE_BATCH_SIZE = 128", "DEVICE_BATCH_SIZE = 32"),
+            ("TOTAL_BATCH_SIZE = 2\\*\\*19", "TOTAL_BATCH_SIZE = 2**17"),
         ],
     },
     "VM.GPU.A10.1": {  # OCI A10 24GB
@@ -356,6 +356,14 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
                 for old, new in gpu_tuning["patches"]:
                     ssh.run(f"sed -i 's/{old}/{new}/' {remote_dir}/train.py")
 
+            # Build env prefix for forwarding tokens to remote commands
+            # (passed inline, never written to disk — see CLAUDE.md security policy)
+            env_prefix = ""
+            for token_var in ("HF_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+                token_val = os.environ.get(token_var)
+                if token_val:
+                    env_prefix += f"{token_var}={token_val} "
+
             # Install uv and sync upstream dependencies on remote
             log.log("[setup] Installing uv and dependencies on remote...")
             ssh.run("curl -LsSf https://astral.sh/uv/install.sh | sh")
@@ -365,7 +373,7 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
 
             # Step 2: Data preparation
             log.log("[prepare] Downloading data and training tokenizer...")
-            exit_code, _ = ssh.run(f"cd {remote_dir} && ~/.local/bin/uv run prepare.py --num-shards 2")
+            exit_code, _ = ssh.run(f"cd {remote_dir} && {env_prefix}~/.local/bin/uv run prepare.py --num-shards 2")
             if exit_code != 0:
                 log.error("Data preparation failed on remote. Cannot continue.")
                 return
@@ -388,12 +396,13 @@ def _run_cloud(config, research, max_experiments, verbose, log: Logger, platform
                 for i in range(1, max_experiments + 1):
                     log.log(f"── Experiment {i}/{max_experiments} ──")
                     if i == 1:
-                        log.log("  Note: first experiment includes one-time CUDA kernel compilation (~2 min)")
+                        log.log("  Note: first experiment includes one-time CUDA kernel compilation (~2 min).")
+                        log.log("  The log will be silent during compilation — this is expected.")
                     t0 = time.time()
 
                     abort_event.clear()
                     exit_code, output = ssh.run(
-                        f"cd {remote_dir} && ~/.local/bin/uv run train.py",
+                        f"cd {remote_dir} && {env_prefix}~/.local/bin/uv run train.py",
                         timeout=experiment_timeout,
                         abort_event=abort_event,
                     )

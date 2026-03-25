@@ -329,6 +329,23 @@ Cloud providers set GPU quota to **0** by default. Your first cloud run will fai
 - API keys reach cloud VMs via SSH environment variables at runtime, never written to disk
 - VMs are destroyed after each run — no lingering resources
 
+## FAQ
+
+**Why not just use SkyPilot?**
+SkyPilot is great for general GPU workloads. This is purpose-built for autoresearch — it handles upstream-specific patches (batch sizes, GPU tuning), cost estimation tuned to short experiment runs, and the full experiment lifecycle. Much simpler to set up for this specific use case.
+
+**Why not Terraform?**
+These are ephemeral VMs that live for 10-20 minutes. Native SDK calls (boto3, google-cloud-compute) are faster to provision, easier to tear down, and don't require the user to install anything beyond pip packages. This follows the SkyPilot/Ray approach for ephemeral workloads.
+
+**Does it work with other training scripts?**
+Not currently — it's specifically for Karpathy's autoresearch. The architecture (provider modules, orchestrator, cost engine) could be generalized, but that's not the goal today.
+
+**Why does it need Ampere+ GPUs?**
+Upstream autoresearch uses FlashAttention 3 and bfloat16, which require compute capability 8.0+. T4 and V100 don't work. This is an upstream constraint — we pick the right GPU so you don't have to figure this out.
+
+**What's the catch?**
+You need cloud credentials set up (AWS keys, GCP service account, etc.). The tool doesn't provision cloud accounts — just VMs. GPU quota on some providers (Azure, OCI) requires a manual request that can take days.
+
 ## Contributing
 
 We aim to support AWS, GCP, Azure, and Oracle OCI. Want to add another cloud provider (Lambda Labs, CoreWeave, Paperspace, etc.)? Contributions are welcome:

@@ -58,8 +58,9 @@ def init(platform_name: str, credentials: str):
         elif platform_name == "oci":
             _init_oci(config, credentials, log)
 
+    config["active_platform"] = platform_name
     save_config(config)
-    click.echo(f"\nConfig saved to {DEFAULT_CONFIG_PATH}")
+    click.echo(f"\n{platform_name} is now the active platform. Config saved to {DEFAULT_CONFIG_PATH}")
 
 
 def _init_mac(config: dict, log=None):
@@ -414,6 +415,7 @@ def show_config():
 
     # Init settings
     click.echo("── Init Settings ──────────────────────────")
+    click.echo(f"Active platform:  {config.get('active_platform', 'not set')}")
     click.echo(f"Log directory:    {config.get('log_dir', 'not set')}")
     click.echo()
 
@@ -460,7 +462,6 @@ def show_config():
         click.echo(f"Topic:            {r.get('topic', 'not set')}")
         click.echo(f"Program:          {r.get('program', 'not set')}")
         click.echo(f"Max experiments:  {r.get('max_experiments', 'not set')}")
-        click.echo(f"Platform:         {research.get('platform', 'not set')}")
         b = research.get("budget", {})
         click.echo(f"Budget:           ${b.get('max_cost_usd', 'not set')}")
     else:
@@ -507,27 +508,40 @@ def show_config():
 @click.argument("config_file", default="research.yaml", required=False)
 @click.option("--dry-run", is_flag=True, help="Validate config without provisioning")
 @click.option("--preflight", is_flag=True, help="Validate credentials, quotas, and images without provisioning")
+@click.option("--platform", "-p", default=None, type=click.Choice(["mac", "gcp", "aws", "azure", "oci"]),
+              help="Override active platform (default: from init)")
 @click.option("--verbose", is_flag=True, help="Detailed logging")
-def run(config_file: str, dry_run: bool, preflight: bool, verbose: bool):
+def run(config_file: str, dry_run: bool, preflight: bool, platform: str | None, verbose: bool):
     """Run autoresearch end to end."""
     if dry_run:
-        _dry_run(config_file)
+        _dry_run(config_file, platform_override=platform)
         return
     if preflight:
-        _preflight(config_file)
+        _preflight(config_file, platform_override=platform)
         return
     from autoresearch_ac.orchestrator import run_experiment
-    run_experiment(research_path=config_file, verbose=verbose)
+    run_experiment(research_path=config_file, platform_override=platform, verbose=verbose)
 
 
-def _dry_run(config_file: str):
+def _resolve_platform(config: dict, platform_override: str | None) -> str:
+    """Resolve active platform: CLI flag > config.yaml > error."""
+    if platform_override:
+        return platform_override
+    active = config.get("active_platform")
+    if active:
+        return active
+    click.echo("Error: No active platform. Run 'autoresearch-anycloud init <platform>' first.", err=True)
+    sys.exit(1)
+
+
+def _dry_run(config_file: str, platform_override: str | None = None):
     """Show what would happen without provisioning."""
     from autoresearch_ac.orchestrator import _get_gpu_tuning, H100_INSTANCE_TYPES
     from autoresearch_ac.cost import GPU_PRICING
 
     config = load_config()
     research = load_research(Path(config_file))
-    platform = research.get("platform", "mac")
+    platform = _resolve_platform(config, platform_override)
     max_experiments = research.get("research", {}).get("max_experiments", 2)
     budget = research.get("budget", {}).get("max_cost_usd", 5.0)
     platform_config = config.get("platforms", {}).get(platform, {})
@@ -577,11 +591,11 @@ def _dry_run(config_file: str):
         log.log(f"\nRun without --dry-run to start.")
 
 
-def _preflight(config_file: str):
+def _preflight(config_file: str, platform_override: str | None = None):
     """Validate credentials, quotas, and images for the target platform."""
     config = load_config()
     research = load_research(Path(config_file))
-    platform = research.get("platform", "mac")
+    platform = _resolve_platform(config, platform_override)
 
     log_dir = config.get("log_dir", "./logs")
     with Logger(log_dir) as log:

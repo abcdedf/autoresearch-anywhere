@@ -50,18 +50,17 @@ LOG_LATEST = os.path.join("logs", "run_latest.log")
 def run_dry_run(platform: str) -> tuple[str, str]:
     """Run dry-run for a platform. Returns (console_output, log_content)."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write(textwrap.dedent(f"""\
+        f.write(textwrap.dedent("""\
             research:
               topic: "test"
               program: "program.md"
               max_experiments: 1
-            platform: {platform}
             budget:
               max_cost_usd: 5.00
         """))
         f.flush()
         result = subprocess.run(
-            ["uv", "run", "autoresearch-anycloud", "run", "--dry-run", f.name],
+            ["uv", "run", "autoresearch-anycloud", "run", "--dry-run", "--platform", platform, f.name],
             capture_output=True, text=True,
         )
         console = result.stdout + result.stderr

@@ -1,4 +1,5 @@
 log_dir: ./logs
+active_platform: mac
 
 # GPU instance types per platform
 # Default: budget-friendly Ampere GPUs (~$0.50-3.20/hr) with tuned batch sizes

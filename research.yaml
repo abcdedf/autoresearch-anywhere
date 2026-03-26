@@ -5,9 +5,6 @@ research:
   max_experiments: 1         # Set very low for quick demo. Upstream default: 100
   time_budget: 60            # Seconds per experiment. Upstream default: 300 (5 min)
 
-# Where to run
-platform: mac                # Options: mac, aws, gcp, azure, oci
-
 # Cost controls
 budget:
   max_cost_usd: 5.00         # Cloud + API combined. Auto-stops if exceeded. For overnight cloud runs: 10-50

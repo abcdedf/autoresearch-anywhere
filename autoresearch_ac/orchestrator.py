@@ -13,7 +13,7 @@ from autoresearch_ac.config import load_config, load_research
 from autoresearch_ac.log import Logger
 
 
-def run_experiment(research_path: str = "research.yaml", verbose: bool = False):
+def run_experiment(research_path: str = "research.yaml", platform_override: str | None = None, verbose: bool = False):
     """Run autoresearch end to end on the configured platform."""
     config = load_config()
     research = load_research(Path(research_path))
@@ -26,7 +26,14 @@ def run_experiment(research_path: str = "research.yaml", verbose: bool = False):
         print(f"Error: No research config found at {research_path}")
         sys.exit(1)
 
-    platform = research.get("platform", "mac")
+    # Platform comes from: CLI flag > config.yaml active_platform
+    if platform_override:
+        platform = platform_override
+    else:
+        platform = config.get("active_platform")
+        if not platform:
+            print("Error: No active platform. Run 'autoresearch-anycloud init <platform>' first.")
+            sys.exit(1)
     max_experiments = research.get("research", {}).get("max_experiments", 2)
     log_dir = config.get("log_dir", "./logs")
 

@@ -112,11 +112,11 @@ research:
   program: "program.md"
   max_experiments: 1       # set very low for quick demo. Upstream default: 100
 
-platform: mac              # or: aws, gcp, azure, oci
-
 budget:
   max_cost_usd: 5.00       # Cloud + API combined. Auto-stops if exceeded. For overnight cloud runs: 10-50
 ```
+
+The platform is set when you run `init` — no need to specify it here.
 
 **Included defaults are set very low for a quick demo (~5 min).** For real research:
 - `max_experiments: 100` — upstream default, runs overnight (12 experiments per hour, 5 min each)
@@ -125,7 +125,7 @@ budget:
 
 ## Run on Cloud GPUs
 
-When you're ready for faster GPUs, change `platform:` in `research.yaml` and provide cloud credentials. The tool handles everything else — launching the VM, installing dependencies, running training, collecting results, and shutting down the VM.
+When you're ready for faster GPUs, run `init` with a cloud platform and provide credentials. The tool handles everything else — launching the VM, installing dependencies, running training, collecting results, and shutting down the VM.
 
 > **GPU quota required**: All cloud providers limit GPU access by default (quota = 0). Your first run will likely fail with a quota error. Request GPU access **before** your first run — it's free to apply but approval can take hours to days for new accounts. See [GPU Quota](#gpu-quota) below for links.
 
@@ -144,8 +144,7 @@ When you're ready for faster GPUs, change `platform:` in `research.yaml` and pro
 
 1. [Create an AWS access key](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html) and download the CSV
 2. Move the CSV to `~/.aws/credentials/` (create the folder if needed: `mkdir -p ~/.aws/credentials`)
-3. Set `platform: aws` in `research.yaml`
-4. Run:
+3. Run:
 
 ```bash
 autoresearch-anycloud init aws
@@ -176,8 +175,7 @@ mkdir -p ~/.config/gcloud
 mv ~/Downloads/*.json ~/.config/gcloud/
 ```
 
-5. Set `platform: gcp` in `research.yaml`
-6. Run:
+5. Run:
 
 ```bash
 autoresearch-anycloud init gcp
@@ -224,8 +222,7 @@ This outputs `appId`, `password`, `tenant`. Map them into a JSON file.
 }
 ```
 
-5. Set `platform: azure` in `research.yaml`
-6. Run:
+5. Run:
 
 ```bash
 autoresearch-anycloud init azure
@@ -271,7 +268,7 @@ key_file=~/.oci/oci_api_key.pem
 compartment=ocid1.compartment.oc1..xxxxx
 ```
 
-Set `platform: oci` in `research.yaml`, then run:
+Run:
 
 ```bash
 autoresearch-anycloud init oci
@@ -293,13 +290,18 @@ Estimated cloud cost: $0.08 for 1 experiment on an A10 GPU (on-demand $0.50/hr).
 
 ### Switching Platforms
 
-Change one line in `research.yaml`:
+Once you've initialized multiple platforms, switch with `init`:
 
-```yaml
-platform: gcp    # or: mac, aws, azure, oci
+```bash
+autoresearch-anycloud init gcp
+autoresearch-anycloud run
 ```
 
-Same command. Different platform. Same results format.
+Or use `--platform` for a one-off override without changing the active platform:
+
+```bash
+autoresearch-anycloud run --platform aws
+```
 
 ## Cost Tracking
 

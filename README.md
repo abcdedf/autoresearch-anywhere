@@ -10,6 +10,17 @@ Run [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) on your 
 | Azure | A10 24GB | ~$3.20/hr | NC40ads_H100_v5 (1x H100, ~$7/hr) | Coming soon |
 | Oracle OCI | A10 24GB | $0.50/hr | BM.GPU.H100.8 (8x H100, ~$44/hr) | Coming soon |
 
+## Demos
+
+### Mac (Apple Silicon MPS) — Free
+![Mac demo](docs/demo-mac.gif)
+
+### AWS (A10G 24GB) — $0.12/experiment
+![AWS demo](docs/demo-aws.gif)
+
+### GCP (L4 24GB) — $0.11/experiment
+![GCP demo](docs/demo-gcp.gif)
+
 ## Why This Tool?
 
 The autoresearch ecosystem has tools for [Mac/MPS](https://github.com/miolini/autoresearch-macos), [MLX](https://github.com/trevin-creator/autoresearch-mlx), and cloud orchestrators like [SkyPilot](https://github.com/skypilot-org/skypilot). But no single tool lets a researcher go from research intent to results across any platform without infrastructure knowledge. autoresearch-anycloud fills that gap:

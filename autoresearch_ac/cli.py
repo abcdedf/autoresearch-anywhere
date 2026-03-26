@@ -15,6 +15,7 @@ from autoresearch_ac.config import (
     load_research,
     save_config,
 )
+from autoresearch_ac.cost import GPU_CATALOG, GPU_DEFAULTS, GPU_PRICING
 from autoresearch_ac.log import Logger
 
 
@@ -30,9 +31,21 @@ def cli():
 
 @cli.command()
 @click.argument("platform_name", type=click.Choice(["mac", "gcp", "aws", "azure", "oci"]))
-@click.option("--credentials", "-c", default=None, help="Path to credentials file")
-def init(platform_name: str, credentials: str):
-    """One-time platform setup."""
+@click.option("--gpu", "-g", default=None, help="Use this option for the tool to pick a compatible instance for this GPU model (e.g. h100, a100, l4). Default: cheapest compatible.")
+@click.option("--instance-type", default=None, help="Use this exact cloud instance type, bypassing GPU-to-instance mapping.")
+@click.option("--list-gpus", is_flag=True, help="Show available GPU models, their instance types, and pricing for this platform.")
+def init(platform_name: str, gpu: str | None, instance_type: str | None, list_gpus: bool):
+    """One-time platform setup.
+
+    Only the platform name is required. If neither --gpu nor --instance-type
+    is given, the tool defaults to the cheapest compatible GPU for the platform.
+    """
+
+    # --list-gpus: show available GPUs and exit
+    if list_gpus:
+        _list_gpus(platform_name)
+        return
+
     config = load_config()
 
     # General settings (first time only)
@@ -46,21 +59,86 @@ def init(platform_name: str, credentials: str):
     if "platforms" not in config:
         config["platforms"] = {}
 
+    # Resolve GPU / instance type for cloud platforms
+    resolved_instance_type = None
+    if platform_name != "mac":
+        resolved_instance_type = _resolve_instance_type(platform_name, gpu, instance_type)
+
     with Logger(config["log_dir"]) as log:
         if platform_name == "mac":
             _init_mac(config, log)
         elif platform_name == "gcp":
-            _init_gcp(config, credentials, log)
+            _init_gcp(config, log)
         elif platform_name == "aws":
-            _init_aws(config, credentials, log)
+            _init_aws(config, log)
         elif platform_name == "azure":
-            _init_azure(config, credentials, log)
+            _init_azure(config, log)
         elif platform_name == "oci":
-            _init_oci(config, credentials, log)
+            _init_oci(config, log)
+
+    # Apply resolved instance type (overrides provider default)
+    if resolved_instance_type and platform_name in config.get("platforms", {}):
+        config["platforms"][platform_name]["instance_type"] = resolved_instance_type
 
     config["active_platform"] = platform_name
     save_config(config)
     click.echo(f"\n{platform_name} is now the active platform. Config saved to {DEFAULT_CONFIG_PATH}")
+
+
+def _resolve_instance_type(platform_name: str, gpu: str | None, instance_type: str | None) -> str:
+    """Resolve instance type from --instance-type, --gpu, or provider default."""
+    # --instance-type takes priority
+    if instance_type:
+        click.echo(f"  Instance type: {instance_type} (from --instance-type)")
+        return instance_type
+
+    catalog = GPU_CATALOG.get(platform_name, {})
+
+    # --gpu: look up in catalog
+    if gpu:
+        gpu_lower = gpu.lower()
+        if gpu_lower not in catalog:
+            available = ", ".join(sorted(catalog.keys()))
+            click.echo(f"Error: GPU type '{gpu}' not available for {platform_name}.", err=True)
+            click.echo(f"Available: {available}", err=True)
+            click.echo(f"Run: autoresearch-anycloud init {platform_name} --list-gpus", err=True)
+            sys.exit(1)
+        entry = catalog[gpu_lower]
+        click.echo(f"  GPU: {entry['gpu']} → {entry['instance_type']} ({entry['note']})")
+        return entry["instance_type"]
+
+    # Default: cheapest compatible GPU
+    default_gpu = GPU_DEFAULTS.get(platform_name)
+    if default_gpu and default_gpu in catalog:
+        entry = catalog[default_gpu]
+        click.echo(f"  GPU: {entry['gpu']} → {entry['instance_type']} (default)")
+        return entry["instance_type"]
+
+    return None
+
+
+def _list_gpus(platform_name: str):
+    """Show available GPU types for a platform."""
+    if platform_name == "mac":
+        click.echo("Mac uses Apple Silicon MPS — no GPU selection needed.")
+        return
+
+    catalog = GPU_CATALOG.get(platform_name, {})
+    if not catalog:
+        click.echo(f"No GPU catalog for {platform_name}.")
+        return
+
+    default_gpu = GPU_DEFAULTS.get(platform_name)
+    click.echo(f"\nAvailable GPUs for {platform_name}:\n")
+    click.echo(f"  {'GPU':<12} {'Instance Type':<30} {'$/hr':>8}  {'Note'}")
+    click.echo(f"  {'─'*12} {'─'*30} {'─'*8}  {'─'*30}")
+    for gpu_key, entry in catalog.items():
+        rate = GPU_PRICING.get(entry["instance_type"], 0.0)
+        default_marker = " (default)" if gpu_key == default_gpu else ""
+        click.echo(f"  {entry['gpu']:<12} {entry['instance_type']:<30} ${rate:>7.2f}  {entry['note']}{default_marker}")
+    click.echo(f"\nUsage:")
+    click.echo(f"  autoresearch-anycloud init {platform_name} --gpu h100")
+    click.echo(f"  autoresearch-anycloud init {platform_name} --instance-type <exact-type>")
 
 
 def _init_mac(config: dict, log=None):
@@ -105,37 +183,31 @@ def _init_mac(config: dict, log=None):
     click.echo("\nMac platform configured.")
 
 
-def _init_gcp(config: dict, credentials: str = None, log=None):
-    """Configure GCP. Reads service account JSON key from --credentials path or ~/.config/gcloud/."""
+def _init_gcp(config: dict, log=None):
+    """Configure GCP. Auto-detects service account JSON key from ~/.config/gcloud/."""
     click.echo("Configuring GCP...\n")
 
     import json
     from google.oauth2 import service_account
     from google.cloud import compute_v1
 
-    # Find the JSON key file
+    # Find the JSON key file in ~/.config/gcloud/
     gcloud_dir = os.path.expanduser("~/.config/gcloud")
-    if credentials:
-        json_path = os.path.expanduser(credentials)
-    else:
-        # Scan ~/.config/gcloud/ for credentials
-        json_path = None
-        adc_path = os.path.join(gcloud_dir, "application_default_credentials.json")
-        if os.path.exists(adc_path):
-            json_path = adc_path
-        elif os.path.isdir(gcloud_dir):
-            for name in os.listdir(gcloud_dir):
-                if name.endswith(".json"):
-                    json_path = os.path.join(gcloud_dir, name)
-                    break
+    json_path = None
+    adc_path = os.path.join(gcloud_dir, "application_default_credentials.json")
+    if os.path.exists(adc_path):
+        json_path = adc_path
+    elif os.path.isdir(gcloud_dir):
+        for name in os.listdir(gcloud_dir):
+            if name.endswith(".json"):
+                json_path = os.path.join(gcloud_dir, name)
+                break
 
     if not json_path or not os.path.exists(json_path):
         click.echo("  Error: No GCP credentials found.", err=True)
         click.echo("  Create a service account key (JSON) in the GCP Console:", err=True)
         click.echo("    IAM & Admin → Service Accounts → Keys → Add Key → JSON", err=True)
-        click.echo("  Then either:", err=True)
-        click.echo("    autoresearch-anycloud init gcp --credentials /path/to/key.json", err=True)
-        click.echo(f"    or move the JSON file to {gcloud_dir}/", err=True)
+        click.echo(f"  Then move the JSON file to {gcloud_dir}/", err=True)
         sys.exit(1)
 
     # Read and verify the key file
@@ -165,25 +237,21 @@ def _init_gcp(config: dict, credentials: str = None, log=None):
     click.echo("\nGCP configured.")
 
 
-def _init_aws(config: dict, credentials: str = None, log=None):
-    """Configure AWS. Reads credentials CSV from ~/.aws/credentials/ or --credentials path."""
+def _init_aws(config: dict, log=None):
+    """Configure AWS. Auto-detects credentials CSV from ~/.aws/credentials/."""
     click.echo("Configuring AWS...\n")
 
     import csv
     import boto3
 
-    # Find the CSV
+    # Find the CSV in ~/.aws/credentials/
     default_dir = os.path.expanduser("~/.aws/credentials")
-    if credentials:
-        csv_path = os.path.expanduser(credentials)
-    else:
-        # Look for any CSV in ~/.aws/credentials/
-        csv_path = None
-        if os.path.isdir(default_dir):
-            for name in os.listdir(default_dir):
-                if name.endswith(".csv"):
-                    csv_path = os.path.join(default_dir, name)
-                    break
+    csv_path = None
+    if os.path.isdir(default_dir):
+        for name in os.listdir(default_dir):
+            if name.endswith(".csv"):
+                csv_path = os.path.join(default_dir, name)
+                break
 
     if not csv_path or not os.path.exists(csv_path):
         click.echo(f"  Error: No credentials CSV found in {default_dir}/", err=True)
@@ -224,8 +292,8 @@ def _init_aws(config: dict, credentials: str = None, log=None):
     click.echo("\nAWS configured.")
 
 
-def _init_azure(config: dict, credentials: str = None, log=None):
-    """Configure Azure. Reads service principal JSON from --credentials, env vars, or ~/.azure/."""
+def _init_azure(config: dict, log=None):
+    """Configure Azure. Auto-detects service principal from ~/.azure/, or env vars."""
     click.echo("Configuring Azure...\n")
 
     import json
@@ -238,25 +306,7 @@ def _init_azure(config: dict, credentials: str = None, log=None):
     subscription_id = None
     credentials_source = None
 
-    # 1. --credentials flag: read from JSON file
-    if credentials:
-        json_path = os.path.expanduser(credentials)
-        if not os.path.exists(json_path):
-            click.echo(f"  Error: File not found: {json_path}", err=True)
-            sys.exit(1)
-        try:
-            with open(json_path) as f:
-                creds = json.load(f)
-            tenant_id = creds["tenant_id"]
-            client_id = creds["client_id"]
-            client_secret = creds["client_secret"]
-            subscription_id = creds["subscription_id"]
-            credentials_source = json_path
-        except (KeyError, json.JSONDecodeError) as e:
-            click.echo(f"  Error: Invalid credentials JSON. Expected keys: tenant_id, client_id, client_secret, subscription_id. {e}", err=True)
-            sys.exit(1)
-
-    # 2. Environment variables
+    # 1. Environment variables
     if not tenant_id:
         env_tenant = os.environ.get("AZURE_TENANT_ID")
         env_client = os.environ.get("AZURE_CLIENT_ID")
@@ -293,10 +343,9 @@ def _init_azure(config: dict, credentials: str = None, log=None):
         click.echo("    4. Go to Subscriptions → your subscription → copy the Subscription ID", err=True)
         click.echo("    5. Still in the subscription, go to Access control (IAM) → Add role → Contributor → assign to your app", err=True)
         click.echo("", err=True)
-        click.echo("  Save credentials as JSON (any of these locations):", err=True)
+        click.echo("  Save credentials as JSON:", err=True)
         click.echo(f"    {default_json}", err=True)
-        click.echo("    or pass via: autoresearch-anycloud init azure --credentials /path/to/sp.json", err=True)
-        click.echo("    or set env vars: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID", err=True)
+        click.echo("  Or set env vars: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID", err=True)
         click.echo("", err=True)
         click.echo("  JSON format:", err=True)
         click.echo('    {"tenant_id": "...", "client_id": "...", "client_secret": "...", "subscription_id": "..."}', err=True)
@@ -327,8 +376,8 @@ def _init_azure(config: dict, credentials: str = None, log=None):
     click.echo("\nAzure configured.")
 
 
-def _init_oci(config: dict, credentials: str = None, log=None):
-    """Configure OCI. Reads API key config from ~/.oci/config or --credentials path."""
+def _init_oci(config: dict, log=None):
+    """Configure OCI. Auto-detects API key config from ~/.oci/config."""
     log.log("Configuring Oracle OCI...")
 
     try:
@@ -338,8 +387,7 @@ def _init_oci(config: dict, credentials: str = None, log=None):
         sys.exit(1)
 
     # Find OCI config file
-    default_config_path = os.path.expanduser("~/.oci/config")
-    config_path = os.path.expanduser(credentials) if credentials else default_config_path
+    config_path = os.path.expanduser("~/.oci/config")
 
     if not os.path.exists(config_path):
         log.error(f"OCI config not found at {config_path}")
@@ -506,11 +554,11 @@ def show_config():
 
 @cli.command()
 @click.argument("config_file", default="research.yaml", required=False)
-@click.option("--dry-run", is_flag=True, help="Validate config without provisioning")
-@click.option("--preflight", is_flag=True, help="Validate credentials, quotas, and images without provisioning")
+@click.option("--dry-run", is_flag=True, help="See what would happen — instance type, cost estimate, GPU tuning — without provisioning.")
+@click.option("--preflight", is_flag=True, help="Check credentials, quotas, and images before spending money.")
 @click.option("--platform", "-p", default=None, type=click.Choice(["mac", "gcp", "aws", "azure", "oci"]),
-              help="Override active platform (default: from init)")
-@click.option("--verbose", is_flag=True, help="Detailed logging")
+              help="Run on a different platform without changing the active platform set by init.")
+@click.option("--verbose", is_flag=True, help="Show detailed logging for debugging.")
 def run(config_file: str, dry_run: bool, preflight: bool, platform: str | None, verbose: bool):
     """Run autoresearch end to end."""
     if dry_run:
@@ -537,7 +585,6 @@ def _resolve_platform(config: dict, platform_override: str | None) -> str:
 def _dry_run(config_file: str, platform_override: str | None = None):
     """Show what would happen without provisioning."""
     from autoresearch_ac.orchestrator import _get_gpu_tuning, H100_INSTANCE_TYPES
-    from autoresearch_ac.cost import GPU_PRICING
 
     config = load_config()
     research = load_research(Path(config_file))

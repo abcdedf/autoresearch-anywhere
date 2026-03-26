@@ -29,11 +29,62 @@ ESTIMATED_OUTPUT_TOKENS_PER_EXPERIMENT = 2000
 # GPU on-demand pricing per hour (from public pricing pages, March 2026)
 # Source: instances.vantage.sh, cloud provider pricing calculators
 GPU_PRICING = {
-    "g5.xlarge": 1.006,                # AWS A10G on-demand — https://instances.vantage.sh/aws/ec2/g5.xlarge
-    "g2-standard-4": 0.72,             # GCP L4 on-demand — https://cloud.google.com/compute/vm-instance-pricing
-    "Standard_NV36ads_A10_v5": 3.20,   # Azure A10 on-demand — https://instances.vantage.sh/azure/vm/nv36ads-v5
-    "VM.GPU.A10.1": 0.50,              # OCI A10 — https://www.oracle.com/cloud/compute/pricing/
-    "mac": 0.00,                        # Local, free
+    # AWS
+    "g5.xlarge": 1.006,                # A10G 24GB
+    "p4d.24xlarge": 32.77,             # A100 40GB ×8
+    "p4de.24xlarge": 40.97,            # A100 80GB ×8
+    "p5.48xlarge": 98.32,              # H100 80GB ×8
+    # GCP
+    "g2-standard-4": 0.72,             # L4 24GB
+    "a2-highgpu-1g": 3.67,             # A100 40GB ×1
+    "a2-ultragpu-1g": 5.00,            # A100 80GB ×1
+    "a3-highgpu-8g": 98.26,            # H100 80GB ×8
+    # Azure
+    "Standard_NV36ads_A10_v5": 3.20,   # A10 24GB
+    "Standard_NC24ads_A100_v4": 3.67,  # A100 80GB ×1
+    "Standard_NC40ads_H100_v5": 7.35,  # H100 80GB ×1
+    # OCI
+    "VM.GPU.A10.1": 0.50,              # A10 24GB
+    "BM.GPU.A100-v2.8": 26.00,         # A100 40GB ×8
+    "BM.GPU.H100.8": 44.00,            # H100 80GB ×8
+    # Local
+    "mac": 0.00,
+}
+
+# GPU type → smallest single-GPU instance per provider
+# Used by `init --gpu <type>` to resolve the right instance type.
+# Only lists Ampere+ GPUs (upstream autoresearch requirement).
+GPU_CATALOG = {
+    "aws": {
+        "a10g":     {"instance_type": "g5.xlarge",      "gpu": "A10G 24GB",  "note": "single GPU, cheapest"},
+        "a100":     {"instance_type": "p4d.24xlarge",    "gpu": "A100 40GB",  "note": "8-GPU (no single-GPU A100 on AWS)"},
+        "a100-80":  {"instance_type": "p4de.24xlarge",   "gpu": "A100 80GB",  "note": "8-GPU"},
+        "h100":     {"instance_type": "p5.48xlarge",     "gpu": "H100 80GB",  "note": "8-GPU"},
+    },
+    "gcp": {
+        "l4":       {"instance_type": "g2-standard-4",   "gpu": "L4 24GB",    "note": "single GPU, cheapest"},
+        "a100":     {"instance_type": "a2-highgpu-1g",   "gpu": "A100 40GB",  "note": "single GPU"},
+        "a100-80":  {"instance_type": "a2-ultragpu-1g",  "gpu": "A100 80GB",  "note": "single GPU"},
+        "h100":     {"instance_type": "a3-highgpu-8g",   "gpu": "H100 80GB",  "note": "8-GPU"},
+    },
+    "azure": {
+        "a10":      {"instance_type": "Standard_NV36ads_A10_v5",   "gpu": "A10 24GB",  "note": "single GPU"},
+        "a100":     {"instance_type": "Standard_NC24ads_A100_v4",  "gpu": "A100 80GB",  "note": "single GPU"},
+        "h100":     {"instance_type": "Standard_NC40ads_H100_v5",  "gpu": "H100 80GB",  "note": "single GPU, cheapest H100"},
+    },
+    "oci": {
+        "a10":      {"instance_type": "VM.GPU.A10.1",      "gpu": "A10 24GB",  "note": "single GPU, cheapest"},
+        "a100":     {"instance_type": "BM.GPU.A100-v2.8",  "gpu": "A100 40GB",  "note": "8-GPU bare metal"},
+        "h100":     {"instance_type": "BM.GPU.H100.8",     "gpu": "H100 80GB",  "note": "8-GPU bare metal"},
+    },
+}
+
+# Default GPU type per provider (used when neither --gpu nor --instance-type is given)
+GPU_DEFAULTS = {
+    "aws": "a10g",
+    "gcp": "l4",
+    "azure": "a10",
+    "oci": "a10",
 }
 
 

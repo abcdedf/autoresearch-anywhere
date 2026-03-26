@@ -151,7 +151,7 @@ autoresearch-anycloud init aws
 autoresearch-anycloud run
 ```
 
-`init aws` reads credentials from `~/.aws/credentials/` by default and verifies them. To use a different location: `autoresearch-anycloud init aws --credentials /path/to/accessKeys.csv`
+`init aws` auto-detects credentials from `~/.aws/credentials/` and verifies them.
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.13 for 1 experiment on an A10G GPU.
 
@@ -182,7 +182,7 @@ autoresearch-anycloud init gcp
 autoresearch-anycloud run
 ```
 
-`init gcp` reads credentials from `~/.config/gcloud/` by default and verifies them. To use a different location: `autoresearch-anycloud init gcp --credentials /path/to/key.json`
+`init gcp` auto-detects credentials from `~/.config/gcloud/` and verifies them.
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.12 for 1 experiment on an L4 GPU (on-demand ~$0.72/hr).
 
@@ -229,7 +229,7 @@ autoresearch-anycloud init azure
 autoresearch-anycloud run
 ```
 
-`init azure` reads credentials from `~/.azure/service-principal.json` by default and verifies them. To use a different file: `autoresearch-anycloud init azure --credentials /path/to/sp.json`
+`init azure` auto-detects credentials from `~/.azure/service-principal.json` or environment variables and verifies them.
 
 A GPU VM launches automatically, trains, collects results, and shuts down. Estimated cloud cost: $0.53 for 1 experiment on an A10 GPU (on-demand ~$3.20/hr).
 
@@ -275,7 +275,7 @@ autoresearch-anycloud init oci
 autoresearch-anycloud run
 ```
 
-`init oci` reads credentials from `~/.oci/config` by default and verifies them. To use a different config file: `autoresearch-anycloud init oci --credentials /path/to/oci/config`. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
+`init oci` auto-detects credentials from `~/.oci/config` and verifies them. The compartment OCID can also be provided via the `OCI_COMPARTMENT_ID` environment variable instead of adding it to the config file.
 
 Estimated cloud cost: $0.08 for 1 experiment on an A10 GPU (on-demand $0.50/hr).
 

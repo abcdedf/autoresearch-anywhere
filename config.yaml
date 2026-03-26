@@ -1,36 +1,26 @@
 log_dir: ./logs
 active_platform: mac
-
-# GPU instance types per platform
-# Default: budget-friendly Ampere GPUs (~$0.50-3.20/hr) with tuned batch sizes
-# Upstream: H100 80GB matching Karpathy's autoresearch defaults — no gpu_tuning needed
-#
-# To use upstream defaults: uncomment the upstream instance_type and comment out
-# the default instance_type. GPU tuning is automatically skipped for H100.
-
 platforms:
   mac:
     enabled: true
     apple_silicon: true
-    mps_available: false
+    mps_available: true
   aws:
     region: us-east-1
-    instance_type: g5.xlarge                    # default: A10G 24GB, ~$1.01/hr
-    # instance_type: p5.48xlarge                # upstream: H100 80GB x8, ~$98/hr
+    instance_type: g5.xlarge
     use_spot: false
     spot_max_price: '0.50'
     credentials_csv: /Users/abhayapat/.aws/credentials/accessKey.csv
     gpu_tuning_applied_when_gpu_is_not_H100:
       gpu_name: A10G 24GB
-      device_batch_size: 32                     # upstream default: 128
-      total_batch_size: 131072                  # upstream default: 524288 (2**19)
+      device_batch_size: 32
+      total_batch_size: 131072
   gcp:
     project: autoresearch-491200
     region: asia-northeast1
     zone: asia-northeast1-b
-    instance_type: g2-standard-4                # default: L4 24GB, ~$0.72/hr
+    instance_type: g2-standard-4
     gpu_type: nvidia-l4
-    # instance_type: a3-highgpu-8g              # upstream: H100 80GB x8, ~$98/hr
     credentials_json: /Users/abhayapat/.config/gcloud/autoresearch-491200-482b508309ba.json
     gpu_tuning_applied_when_gpu_is_not_H100:
       gpu_name: L4 24GB
@@ -39,8 +29,7 @@ platforms:
   azure:
     subscription: a61ea4a7-b0d0-49b7-b818-a01927ff9405
     region: eastus
-    instance_type: Standard_NV36ads_A10_v5      # default: A10 24GB, ~$3.20/hr
-    # instance_type: Standard_NC40ads_H100_v5   # upstream: H100 80GB x1, ~$7/hr (only cloud with single-GPU H100)
+    instance_type: Standard_NV36ads_A10_v5
     spot_max_price: '0.50'
     credentials_json: /Users/abhayapat/.azure/service-principal.json
     gpu_tuning_applied_when_gpu_is_not_H100:
@@ -50,8 +39,7 @@ platforms:
   oci:
     compartment_id: ocid1.tenancy.oc1..aaaaaaaangxdgwvaecbfclatnbys65sthydlse25yl2pm5zo7fgexeebjvpq
     region: us-phoenix-1
-    instance_type: VM.GPU.A10.1                 # default: A10 24GB, ~$0.50/hr
-    # instance_type: BM.GPU.H100.8              # nearest upstream: H100 80GB x8, ~$44/hr (no single-GPU H100 on OCI)
+    instance_type: VM.GPU.A10.1
     credentials_config: /Users/abhayapat/.oci/config
     gpu_tuning_applied_when_gpu_is_not_H100:
       gpu_name: A10 24GB
